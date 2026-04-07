@@ -1,0 +1,4 @@
+card-content.md
+.card-state.json
+__pycache__/
+*.pyc
