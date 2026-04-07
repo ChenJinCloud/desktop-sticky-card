@@ -2,3 +2,4 @@ card-content.md
 .card-state.json
 __pycache__/
 *.pyc
+make-demo.py
