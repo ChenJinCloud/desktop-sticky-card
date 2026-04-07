@@ -1,12 +1,22 @@
 # Changelog
 
+## [0.10.2] - 2026-04-08 01:26
+
+### Changed
+- 清理项目文件：移除 make-banner.py、make-demo.py、__pycache__
+- 更新 .gitignore：排除 banner.html、Desktop-Sticky-Card/
+- README 重写为产品视角，去除个人化叙述
+- Banner 更新为高清截图，调整为 21:9 比例居中布局
+- Demo GIF 从版头移至快速启动章节
+
+### Known Issues
+- demo GIF 画质不足，需要重新录制高清版本
+
 ## [0.10.1] - 2026-04-08 00:15
 
 ### Added
-- README 添加 demo GIF（由录屏 mp4 转换，当前分辨率较低，待优化）
-
-### Known Issues
-- demo GIF 画质不足，需要重新录制高清版本或找到更好的 mp4→GIF 方案
+- README 添加 demo GIF（由录屏 mp4 转换）
+- Banner 设计图（HTML 生成 + Edge headless 截图）
 
 ## [0.10.0] - 2026-04-07 22:30
 

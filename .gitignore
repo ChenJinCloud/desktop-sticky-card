@@ -3,4 +3,5 @@ card-content.md
 .card.lock
 __pycache__/
 *.pyc
-make-demo.py
+banner.html
+Desktop-Sticky-Card/
