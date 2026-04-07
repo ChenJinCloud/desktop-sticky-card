@@ -1,6 +1,6 @@
 # Desktop Sticky Card
 
-桌面上始终可见的一小块，让我安心聚焦要做的事。
+![Banner](banner.png)
 
 ![Demo](demo.gif)
 
