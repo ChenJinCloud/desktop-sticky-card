@@ -2,8 +2,6 @@
 
 ![Banner](banner.jpg)
 
-![Demo](demo.gif)
-
 ## 解决什么问题
 
 待办工具都需要主动打开才能看到。一旦需要"想起来才去看"，它就失去了锚点的意义。
@@ -36,7 +34,11 @@ cp card-content.example.md card-content.md
 双击 start.bat
 ```
 
-同时启动桌面卡片 + 对话终端。在终端里直接打字就能操作：
+同时启动桌面卡片 + 对话终端。
+
+![Demo](demo.gif)
+
+在终端里直接打字就能操作：
 
 ```
 > 写周报
