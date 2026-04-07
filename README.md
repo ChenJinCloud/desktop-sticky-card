@@ -1,6 +1,6 @@
 # Desktop Sticky Card
 
-![Banner](banner.png)
+![Banner](banner.jpg)
 
 ![Demo](demo.gif)
 
