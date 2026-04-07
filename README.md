@@ -2,6 +2,8 @@
 
 桌面上小小的一块，让我安心聚焦"想到要做的事情"。
 
+<video src="https://github.com/ChenJinCloud/desktop-sticky-card/raw/master/demo.mp4" controls width="600"></video>
+
 ## 为什么做这个
 
 试过滴答清单桌面便签、Win11 自带便笺、开着 IDE 编辑 Markdown 日志，都不够满意。
