@@ -2,7 +2,7 @@
 
 桌面上小小的一块，让我安心聚焦"想到要做的事情"。
 
-<video src="https://github.com/ChenJinCloud/desktop-sticky-card/raw/master/demo.mp4" controls width="600"></video>
+![Demo](demo.gif)
 
 ## 为什么做这个
 
