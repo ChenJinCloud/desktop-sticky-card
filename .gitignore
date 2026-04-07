@@ -1,5 +1,6 @@
 card-content.md
 .card-state.json
+.card.lock
 __pycache__/
 *.pyc
 make-demo.py

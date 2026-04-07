@@ -120,6 +120,19 @@ def save_state(state):
         pass
 
 
+def ensure_single_instance():
+    """Prevent multiple card windows. Uses a lock file with exclusive access."""
+    lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
+    try:
+        import msvcrt
+        lock_file = open(lock_path, "w")
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        # Keep file handle alive for process lifetime
+        ensure_single_instance._lock = lock_file
+    except (OSError, IOError):
+        sys.exit(0)
+
+
 class StickyCard:
     def __init__(self):
         self.root = tk.Tk()
@@ -725,4 +738,5 @@ class StickyCard:
 
 
 if __name__ == "__main__":
+    ensure_single_instance()
     StickyCard()
