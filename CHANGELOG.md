@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.12.0] - 2026-04-08 12:05
+
+### Added
+- **任务拖拽排序**: 在卡片上按住任务上下拖动即可重新排序，绿色指示线显示插入位置
+  - 点击仍为勾选/取消，拖动超过 5px 阈值后进入排序模式
+  - 拖动时任务背景高亮，释放后自动写入文件
+- **卡片高度固定**: 拖拽底部边缘手动设置卡片高度后，超出部分自动裁剪隐藏
+  - 高度持久化到 `.card-state.json`
+  - 未手动调整高度时保持自动适应内容的原有行为
+
+## [0.11.0] - 2026-04-08 11:41
+
+### Added
+- macOS 独立版本（`mac/` 目录），与 Windows 版完全分离
+  - `fcntl` 单实例锁替代 `msvcrt`
+  - 移除 `ctypes.windll` DPI hack，macOS Retina 原生支持
+  - 字体 Segoe UI → Helvetica Neue，字号整体 +1pt 适配 macOS 渲染
+  - 编辑快捷键 Ctrl+S → Cmd+S
+  - 默认编辑器 notepad → nano
+  - resize 热区 6px → 8px（适配 trackpad）
+  - resize 光标改用 macOS tkinter 名称
+  - `.bat` 启动脚本改为 `.sh`
+- 分平台发布包：`Desktop-Sticky-Card-Windows.zip` / `Desktop-Sticky-Card-macOS.zip`
+  - 仅包含运行必需文件 + README + LICENSE
+
 ## [0.10.2] - 2026-04-08 01:26
 
 ### Changed
