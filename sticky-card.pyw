@@ -386,7 +386,15 @@ class StickyCard:
         self.editor.focus_set()
 
     def _save_edit(self):
+        from datetime import datetime
         text = self.editor.get("1.0", "end-1c")
+        now = datetime.now().strftime("%m/%d %H:%M")
+        # Auto-add timestamp to new unchecked tasks that don't have one
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
+                lines[i] = line.rstrip() + f" `{now}`"
+        text = "\n".join(lines)
         with open(CONTENT_FILE, "w", encoding="utf-8") as f:
             f.write(text)
             if not text.endswith("\n"):
