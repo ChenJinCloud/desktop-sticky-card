@@ -180,6 +180,7 @@ class StickyCard:
         self.tag_names = load_tags()
         self.active_tag = None  # None = show all
         self.show_tags = True
+        self.collapsed_sections = set()  # h2 titles that are collapsed
 
         # Restore state
         state = load_state()
@@ -198,6 +199,7 @@ class StickyCard:
             self.font_size = "M"
         self.user_height = state.get("height", None)
         self.show_tags = state.get("show_tags", True)
+        self.collapsed_sections = set(state.get("collapsed_sections", []))
         saved_tag = state.get("active_tag", None)
         if saved_tag and saved_tag in self.tag_names:
             self.active_tag = saved_tag
@@ -257,7 +259,8 @@ class StickyCard:
                 "font_size": self.font_size,
                 "height": self.user_height,
                 "active_tag": self.active_tag,
-                "show_tags": self.show_tags
+                "show_tags": self.show_tags,
+                "collapsed_sections": list(self.collapsed_sections)
             })
 
     def _on_close(self):
@@ -766,6 +769,15 @@ class StickyCard:
             create_ts = cm.group(2)
         return text, create_ts, done_ts
 
+    def _toggle_section(self, title):
+        if title in self.collapsed_sections:
+            self.collapsed_sections.discard(title)
+        else:
+            self.collapsed_sections.add(title)
+        self._save_geometry()
+        self.last_mtime = 0
+        self._load_content()
+
     def _toggle_show_tags(self, event=None):
         self.show_tags = not self.show_tags
         self.tag_btn.configure(fg=self.t("accent") if self.show_tags else self.t("pin_inactive"))
@@ -811,15 +823,19 @@ class StickyCard:
         bg = self.t("bg")
         raw_lines = text.split("\n")
         wrap_w = self.card_width - 60
+        current_h2 = None  # track which h2 section we're in
 
         for line_idx, line in enumerate(raw_lines):
             stripped = line.strip()
 
             if not stripped:
+                if current_h2 and current_h2 in self.collapsed_sections:
+                    continue
                 tk.Frame(self.content_frame, bg=bg, height=6).pack(fill="x")
                 continue
 
             if re.match(r'^-{3,}$', stripped) or re.match(r'^\*{3,}$', stripped):
+                current_h2 = None  # separator ends h2 section
                 tk.Frame(self.content_frame, bg=bg, height=8).pack(fill="x")
                 tk.Frame(self.content_frame, bg=self.t("hr"), height=1).pack(fill="x", padx=4)
                 tk.Frame(self.content_frame, bg=bg, height=8).pack(fill="x")
@@ -827,6 +843,7 @@ class StickyCard:
 
             m = re.match(r'^#\s+(.*)', stripped)
             if m:
+                current_h2 = None  # h1 ends h2 section
                 tk.Label(
                     self.content_frame, text=m.group(1),
                     font=(SERIF, self.fs("h1"), "bold"),
@@ -837,12 +854,22 @@ class StickyCard:
 
             m = re.match(r'^##\s+(.*)', stripped)
             if m:
-                tk.Label(
-                    self.content_frame, text=m.group(1),
+                h2_title = m.group(1)
+                current_h2 = h2_title
+                is_collapsed = h2_title in self.collapsed_sections
+                arrow = "\u25b6" if is_collapsed else "\u25bc"
+                h2_label = tk.Label(
+                    self.content_frame, text=f"{arrow}  {h2_title}",
                     font=(SERIF, self.fs("h2"), "bold"),
                     bg=bg, fg=self.t("title"), anchor="w",
-                    wraplength=wrap_w, justify="left"
-                ).pack(fill="x", pady=(6, 4))
+                    wraplength=wrap_w, justify="left", cursor="hand2"
+                )
+                h2_label.pack(fill="x", pady=(6, 4))
+                h2_label.bind("<Button-1>", lambda e, t=h2_title: self._toggle_section(t))
+                continue
+
+            # Skip content if inside a collapsed h2 section
+            if current_h2 and current_h2 in self.collapsed_sections:
                 continue
 
             m = re.match(r'^###\s+(.*)', stripped)
