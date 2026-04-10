@@ -17,6 +17,7 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 - **5 档字号** — XS / S / M / L / XL
 - **可调大小** — 拖拽边缘调整宽高
 - **卡片上直接编辑** — 点 Edit 进入编辑模式，Ctrl+S 保存，Esc 取消
+- **每日习惯打卡** — 独立视图，每天自动重置，顶栏 Habits 按钮切换
 - **可折叠分区** — `##` 标题点击可展开/收起，适合放 OKR、目标、备忘等长内容
 - **标签系统** — 任务加 `#标签名` 分类，筛选栏一键过滤，标签 badge 可显示/隐藏
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
@@ -31,6 +32,7 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 ```bash
 # 首次使用：复制示例文件
 cp card-content.example.md card-content.md
+cp card-habits.example.md card-habits.md
 cp card-tags.example.json card-tags.json
 
 # 启动
@@ -69,6 +71,7 @@ cp card-tags.example.json card-tags.json
 | XS/S/M/L/XL | 字号 |
 | Light/Dark/... | 主题 |
 | All / Todo | 全部 / 只看未完成 |
+| Habits | 切换到每日习惯打卡视图 |
 | Tag | 显示/隐藏任务行内标签 |
 | T | 显示/隐藏时间戳 |
 | Edit | 编辑模式（Ctrl+S 保存，Esc 取消） |
@@ -78,6 +81,8 @@ cp card-tags.example.json card-tags.json
 
 ```
 ├── card-content.md         # 卡片内容（Markdown，编辑即生效）
+├── card-habits.md          # 每日习惯（自定义，首次从 example 复制）
+├── card-habits.example.md  # 每日习惯模板
 ├── card-tags.json          # 标签配置（自定义，首次从 example 复制）
 ├── card-tags.example.json  # 标签配置模板
 ├── sticky-card.pyw         # 卡片 GUI

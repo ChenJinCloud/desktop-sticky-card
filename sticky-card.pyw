@@ -24,6 +24,7 @@ CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
 STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
 TAGS_FILE = os.path.join(SCRIPT_DIR, "card-tags.json")
 TAGS_EXAMPLE_FILE = os.path.join(SCRIPT_DIR, "card-tags.example.json")
+HABITS_FILE = os.path.join(SCRIPT_DIR, "card-habits.md")
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
 MIN_WIDTH = 260
@@ -181,6 +182,7 @@ class StickyCard:
         self.active_tag = None  # None = show all
         self.show_tags = True
         self.collapsed_sections = set()  # h2 titles that are collapsed
+        self.habits_mode = False
 
         # Restore state
         state = load_state()
@@ -203,6 +205,7 @@ class StickyCard:
         saved_tag = state.get("active_tag", None)
         if saved_tag and saved_tag in self.tag_names:
             self.active_tag = saved_tag
+        self._check_habits_reset(state)
         self.root.configure(bg=self.t("border"))
         init_h = self.user_height if self.user_height else MIN_HEIGHT
         # Clamp position to keep window visible on current screen
@@ -235,6 +238,25 @@ class StickyCard:
         g = int(g1 * alpha + g2 * (1 - alpha))
         b = int(b1 * alpha + b2 * (1 - alpha))
         return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _check_habits_reset(self, state):
+        """Reset habits checkboxes if a new day has started."""
+        from datetime import date
+        today = date.today().isoformat()
+        last_reset = state.get("habits_last_reset", "")
+        if today != last_reset and os.path.exists(HABITS_FILE):
+            try:
+                with open(HABITS_FILE, "r", encoding="utf-8") as f:
+                    text = f.read()
+                new_text = re.sub(r'\[x\]', '[ ]', text, flags=re.IGNORECASE)
+                if new_text != text:
+                    with open(HABITS_FILE, "w", encoding="utf-8") as f:
+                        f.write(new_text)
+            except Exception:
+                pass
+            # Save reset date immediately
+            state["habits_last_reset"] = today
+            save_state(state)
 
     def _fix_focus_hack(self):
         self.root.withdraw()
@@ -356,6 +378,21 @@ class StickyCard:
         self.fold_btn.bind("<Leave>", lambda e: self.fold_btn.configure(
             fg=self.t("accent") if not self.show_done else self.t("secondary")))
 
+        # Habits toggle
+        if os.path.exists(HABITS_FILE):
+            self.habits_btn = tk.Label(
+                topbar_inner, text="Habits",
+                font=(SANS, 8, "bold" if self.habits_mode else ""),
+                bg=self.t("topbar"),
+                fg=self.t("accent") if self.habits_mode else self.t("secondary"),
+                cursor="hand2"
+            )
+            self.habits_btn.pack(side="right", padx=(0, 6))
+            self.habits_btn.bind("<Button-1>", self._toggle_habits)
+            self.habits_btn.bind("<Enter>", lambda e: self.habits_btn.configure(fg=self.t("fg")))
+            self.habits_btn.bind("<Leave>", lambda e: self.habits_btn.configure(
+                fg=self.t("accent") if self.habits_mode else self.t("secondary")))
+
         # Theme toggle
         self.theme_btn = tk.Label(
             topbar_inner, text=self.theme_name, font=(SANS, 8),
@@ -474,7 +511,7 @@ class StickyCard:
         self.content_frame.pack_forget()
         self.editor_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
         try:
-            with open(CONTENT_FILE, "r", encoding="utf-8") as f:
+            with open(self._active_file, "r", encoding="utf-8") as f:
                 text = f.read()
         except FileNotFoundError:
             text = ""
@@ -485,14 +522,15 @@ class StickyCard:
     def _save_edit(self):
         from datetime import datetime
         text = self.editor.get("1.0", "end-1c")
-        now = datetime.now().strftime("%m/%d %H:%M")
-        # Auto-add timestamp to new unchecked tasks that don't have one
-        lines = text.split("\n")
-        for i, line in enumerate(lines):
-            if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
-                lines[i] = line.rstrip() + f" `{now}`"
-        text = "\n".join(lines)
-        with open(CONTENT_FILE, "w", encoding="utf-8") as f:
+        if not self.habits_mode:
+            now = datetime.now().strftime("%m/%d %H:%M")
+            # Auto-add timestamp to new unchecked tasks that don't have one
+            lines = text.split("\n")
+            for i, line in enumerate(lines):
+                if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
+                    lines[i] = line.rstrip() + f" `{now}`"
+            text = "\n".join(lines)
+        with open(self._active_file, "w", encoding="utf-8") as f:
             f.write(text)
             if not text.endswith("\n"):
                 f.write("\n")
@@ -616,18 +654,21 @@ class StickyCard:
             return
         try:
             from datetime import datetime
-            lines = list(open(CONTENT_FILE, "r", encoding="utf-8"))
+            target = self._active_file
+            lines = list(open(target, "r", encoding="utf-8"))
             if line_idx < 0 or line_idx >= len(lines):
                 return
             line = lines[line_idx]
             if re.search(r'\[x\]', line, re.IGNORECASE):
                 lines[line_idx] = re.sub(r'\[x\]', '[ ]', line, count=1, flags=re.IGNORECASE)
-                lines[line_idx] = re.sub(r'\s*done:`\d{2}/\d{2}\s+\d{2}:\d{2}`', '', lines[line_idx])
+                if not self.habits_mode:
+                    lines[line_idx] = re.sub(r'\s*done:`\d{2}/\d{2}\s+\d{2}:\d{2}`', '', lines[line_idx])
             elif re.search(r'\[\s?\]', line):
-                now = datetime.now().strftime("%m/%d %H:%M")
                 lines[line_idx] = re.sub(r'\[\s?\]', '[x]', line, count=1)
-                lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
-            with open(CONTENT_FILE, "w", encoding="utf-8") as f:
+                if not self.habits_mode:
+                    now = datetime.now().strftime("%m/%d %H:%M")
+                    lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
+            with open(target, "w", encoding="utf-8") as f:
                 f.writelines(lines)
         except Exception:
             pass
@@ -739,7 +780,8 @@ class StickyCard:
             dst_line_idx = self.task_widgets[-1][1] + 1
 
         try:
-            with open(CONTENT_FILE, "r", encoding="utf-8") as f:
+            target = self._active_file
+            with open(target, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             if src_line_idx < 0 or src_line_idx >= len(lines):
                 return
@@ -747,7 +789,7 @@ class StickyCard:
             if src_line_idx < dst_line_idx:
                 dst_line_idx -= 1
             lines.insert(dst_line_idx, line)
-            with open(CONTENT_FILE, "w", encoding="utf-8") as f:
+            with open(target, "w", encoding="utf-8") as f:
                 f.writelines(lines)
         except Exception:
             pass
@@ -768,6 +810,12 @@ class StickyCard:
             text = cm.group(1)
             create_ts = cm.group(2)
         return text, create_ts, done_ts
+
+    def _toggle_habits(self, event=None):
+        self.habits_mode = not self.habits_mode
+        self._save_geometry()
+        self._apply_theme()
+        return "break"
 
     def _toggle_section(self, title):
         if title in self.collapsed_sections:
@@ -986,18 +1034,24 @@ class StickyCard:
 
     # ── File polling ──────────────────────────────────
 
+    @property
+    def _active_file(self):
+        return HABITS_FILE if self.habits_mode else CONTENT_FILE
+
     def _load_content(self):
         if self.is_editing:
             return
         try:
-            mtime = os.path.getmtime(CONTENT_FILE)
+            target = self._active_file
+            mtime = os.path.getmtime(target)
             if mtime != self.last_mtime:
                 self.last_mtime = mtime
-                with open(CONTENT_FILE, "r", encoding="utf-8") as f:
+                with open(target, "r", encoding="utf-8") as f:
                     text = f.read()
                 self._render_content(text)
         except FileNotFoundError:
-            self._render_content("card-content.md not found")
+            name = "card-habits.md" if self.habits_mode else "card-content.md"
+            self._render_content(f"{name} not found")
 
     def _poll_file(self):
         self._load_content()
