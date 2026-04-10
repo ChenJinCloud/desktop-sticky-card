@@ -17,6 +17,7 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 - **5 档字号** — XS / S / M / L / XL
 - **可调大小** — 拖拽边缘调整宽高
 - **卡片上直接编辑** — 点 Edit 进入编辑模式，Ctrl+S 保存，Esc 取消
+- **标签系统** — 任务加 `#标签名` 分类，筛选栏一键过滤，标签 badge 可显示/隐藏
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
@@ -27,8 +28,9 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 ## 快速启动
 
 ```bash
-# 首次使用：复制示例内容文件
+# 首次使用：复制示例文件
 cp card-content.example.md card-content.md
+cp card-tags.example.json card-tags.json
 
 # 启动
 双击 start.bat
@@ -66,6 +68,7 @@ cp card-content.example.md card-content.md
 | XS/S/M/L/XL | 字号 |
 | Light/Dark/... | 主题 |
 | All / Todo | 全部 / 只看未完成 |
+| Tag | 显示/隐藏任务行内标签 |
 | T | 显示/隐藏时间戳 |
 | Edit | 编辑模式（Ctrl+S 保存，Esc 取消） |
 | ✕ | 关闭 |
@@ -73,15 +76,17 @@ cp card-content.example.md card-content.md
 ## 文件结构
 
 ```
-├── card-content.md    # 卡片内容（Markdown，编辑即生效）
-├── sticky-card.pyw    # 卡片 GUI
-├── cardlib.py         # 共享库
-├── chat.py            # 对话终端
-├── card.py            # CLI 工具
-├── start.bat          # 一键启动：卡片 + 对话终端
-├── chat.bat           # 单独启动对话终端
-├── card.bat           # CLI 入口
-├── .card-state.json   # 显示偏好（自动生成）
+├── card-content.md         # 卡片内容（Markdown，编辑即生效）
+├── card-tags.json          # 标签配置（自定义，首次从 example 复制）
+├── card-tags.example.json  # 标签配置模板
+├── sticky-card.pyw         # 卡片 GUI
+├── cardlib.py              # 共享库
+├── chat.py                 # 对话终端
+├── card.py                 # CLI 工具
+├── start.bat               # 一键启动：卡片 + 对话终端
+├── chat.bat                # 单独启动对话终端
+├── card.bat                # CLI 入口
+├── .card-state.json        # 显示偏好（自动生成）
 ├── README.md
 └── CHANGELOG.md
 ```
@@ -96,7 +101,25 @@ cp card-content.example.md card-content.md
 | `- [x] Task` | 已完成任务 ☑ |
 | `- Item` | 列表项 |
 | `---` | 分隔线 |
+| `- [ ] Task #Tag` | 带标签的任务 |
 | `*text*` | 斜体 |
+
+## 标签
+
+在 `card-tags.json` 中定义标签名，任务中用 `#标签名` 标记：
+
+```json
+{
+  "tags": ["Work", "Personal", "Study", "Health"]
+}
+```
+
+```markdown
+- [ ] Review pull requests #Work
+- [ ] Read chapter 5 #Study
+```
+
+卡片顶部会出现标签筛选栏，点击可按类别过滤任务。顶栏 Tag 按钮控制行内标签 badge 的显示/隐藏。标签颜色跟随当前主题自动切换。
 
 ## 环境要求
 
