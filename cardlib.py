@@ -5,9 +5,11 @@ Used by chat.py, card.py, and sticky-card.pyw.
 
 import os
 import re
+import json
 from datetime import datetime
 
 CONTENT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "card-content.md")
+TAGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "card-tags.json")
 
 
 def read_lines():
@@ -49,13 +51,25 @@ def find_insert_position(lines):
     return len(lines)
 
 
-def add_tasks(texts):
-    """Add one or more tasks with timestamp. Returns list of added task names."""
+def load_tag_names():
+    """Return list of valid tag names from card-tags.json."""
+    try:
+        with open(TAGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        tags = data.get("tags", [])
+        return [t if isinstance(t, str) else t["name"] for t in tags]
+    except Exception:
+        return []
+
+
+def add_tasks(texts, tag=None):
+    """Add one or more tasks with timestamp and optional tag. Returns list of added task names."""
     lines = read_lines()
     pos = find_insert_position(lines)
     now = datetime.now().strftime("%m/%d %H:%M")
+    tag_suffix = f" #{tag}" if tag else ""
     for i, text in enumerate(texts):
-        lines.insert(pos + i, f"- [ ] {text} `{now}`\n")
+        lines.insert(pos + i, f"- [ ] {text}{tag_suffix} `{now}`\n")
     write_lines(lines)
     return texts
 

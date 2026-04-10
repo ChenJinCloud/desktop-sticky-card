@@ -22,6 +22,8 @@ import json
 SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
 CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
 STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
+TAGS_FILE = os.path.join(SCRIPT_DIR, "card-tags.json")
+TAGS_EXAMPLE_FILE = os.path.join(SCRIPT_DIR, "card-tags.example.json")
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
 MIN_WIDTH = 260
@@ -120,6 +122,27 @@ def save_state(state):
         pass
 
 
+def load_tags():
+    """Load tag names from card-tags.json, fallback to example."""
+    for path in (TAGS_FILE, TAGS_EXAMPLE_FILE):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            tags = data.get("tags", [])
+            # Support both ["name", ...] and [{"name": ...}, ...] formats
+            return [t if isinstance(t, str) else t["name"] for t in tags]
+        except Exception:
+            continue
+    return []
+
+
+def parse_tags(text):
+    """Extract #TagName tokens from task text. Returns (clean_text, [tag_names])."""
+    tags = re.findall(r'#([^\s#`]+)', text)
+    clean = re.sub(r'\s*#[^\s#`]+', '', text).strip()
+    return clean, tags
+
+
 def ensure_single_instance():
     """Prevent multiple card windows. Uses a lock file with exclusive access."""
     lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
@@ -154,10 +177,13 @@ class StickyCard:
         self.task_widgets = []
         self.drag_task = None
         self.drop_line = None
+        self.tag_names = load_tags()
+        self.active_tag = None  # None = show all
 
         # Restore state
         state = load_state()
         sx = self.root.winfo_screenwidth()
+        sy = self.root.winfo_screenheight()
         x = state.get("x", sx - DEFAULT_WIDTH - 50)
         y = state.get("y", 50)
         self.card_width = state.get("width", DEFAULT_WIDTH)
@@ -170,8 +196,14 @@ class StickyCard:
         if self.font_size not in FONT_SIZES:
             self.font_size = "M"
         self.user_height = state.get("height", None)
+        saved_tag = state.get("active_tag", None)
+        if saved_tag and saved_tag in self.tag_names:
+            self.active_tag = saved_tag
         self.root.configure(bg=self.t("border"))
         init_h = self.user_height if self.user_height else MIN_HEIGHT
+        # Clamp position to keep window visible on current screen
+        x = max(0, min(x, sx - min(self.card_width, sx)))
+        y = max(0, min(y, sy - min(init_h, sy)))
         self.root.geometry(f"{self.card_width}x{init_h}+{x}+{y}")
 
         self._build_ui()
@@ -189,6 +221,16 @@ class StickyCard:
     def fs(self, key):
         """Get font size from current level."""
         return FONT_SIZES[self.font_size][key]
+
+    @staticmethod
+    def _blend_color(color1, color2, alpha):
+        """Blend color1 into color2 by alpha (0=all color2, 1=all color1)."""
+        r1, g1, b1 = int(color1[1:3], 16), int(color1[3:5], 16), int(color1[5:7], 16)
+        r2, g2, b2 = int(color2[1:3], 16), int(color2[3:5], 16), int(color2[5:7], 16)
+        r = int(r1 * alpha + r2 * (1 - alpha))
+        g = int(g1 * alpha + g2 * (1 - alpha))
+        b = int(b1 * alpha + b2 * (1 - alpha))
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _fix_focus_hack(self):
         self.root.withdraw()
@@ -211,7 +253,8 @@ class StickyCard:
                 "show_done": self.show_done,
                 "theme": self.theme_name,
                 "font_size": self.font_size,
-                "height": self.user_height
+                "height": self.user_height,
+                "active_tag": self.active_tag
             })
 
     def _on_close(self):
@@ -323,6 +366,42 @@ class StickyCard:
             w.bind("<ButtonRelease-1>", self._drag_end)
 
         tk.Frame(self.card, bg=self.t("hr"), height=1).pack(fill="x")
+
+        # ── Tag filter bar ──
+        if self.tag_names:
+            self.tag_bar = tk.Frame(self.card, bg=self.t("topbar"))
+            self.tag_bar.pack(fill="x")
+            tag_inner = tk.Frame(self.tag_bar, bg=self.t("topbar"))
+            tag_inner.pack(fill="x", padx=14, pady=(5, 4))
+
+            accent = self.t("accent")
+            inactive_bg = self._blend_color(accent, self.t("bg"), 0.12)
+
+            # "All" pill
+            all_active = self.active_tag is None
+            all_btn = tk.Label(
+                tag_inner, text=" All ",
+                font=(SANS, self.fs("top"), "bold" if all_active else ""),
+                bg=accent if all_active else inactive_bg,
+                fg="#FFFFFF" if all_active else self.t("secondary"),
+                cursor="hand2", padx=8, pady=2, relief="flat", borderwidth=0
+            )
+            all_btn.pack(side="left")
+            all_btn.bind("<Button-1>", lambda e: self._filter_tag(None))
+
+            for tname in self.tag_names:
+                is_active = self.active_tag == tname
+                btn = tk.Label(
+                    tag_inner, text=f" {tname} ",
+                    font=(SANS, self.fs("top"), "bold" if is_active else ""),
+                    bg=accent if is_active else inactive_bg,
+                    fg="#FFFFFF" if is_active else self.t("secondary"),
+                    cursor="hand2", padx=8, pady=2, relief="flat", borderwidth=0
+                )
+                btn.pack(side="left", padx=(4, 0))
+                btn.bind("<Button-1>", lambda e, n=tname: self._filter_tag(n))
+
+            tk.Frame(self.card, bg=self.t("hr"), height=1).pack(fill="x")
 
         # ── Content area ──
         self.content_frame = tk.Frame(self.card, bg=self.t("bg"))
@@ -504,6 +583,7 @@ class StickyCard:
 
     def _apply_theme(self):
         """Rebuild entire UI with new theme/font."""
+        self.tag_names = load_tags()
         self.root.configure(bg=self.t("border"))
         self.outer_border.destroy()
         self._build_ui()
@@ -690,6 +770,15 @@ class StickyCard:
         self._load_content()
         return "break"
 
+    def _filter_tag(self, tag_name):
+        if self.active_tag == tag_name:
+            self.active_tag = None  # toggle off
+        else:
+            self.active_tag = tag_name
+        self._save_geometry()
+        self._apply_theme()  # rebuild UI to update tag bar highlight
+        return "break"
+
     def _render_content(self, text):
         for w in self.content_frame.winfo_children():
             w.destroy()
@@ -749,11 +838,14 @@ class StickyCard:
                 if not self.show_done:
                     continue
                 task_text, create_ts, done_ts = self._split_timestamp(m.group(1))
+                clean_text, task_tags = parse_tags(task_text)
+                if self.active_tag and self.active_tag not in task_tags:
+                    continue
                 f = tk.Frame(self.content_frame, bg=bg)
                 f.pack(fill="x", pady=2)
                 tk.Label(f, text="  \u2611 ", font=(SANS, self.fs("body") - 1), bg=bg, fg=self.t("done")).pack(side="left", anchor="n")
                 tk.Label(
-                    f, text=task_text, font=(SERIF, self.fs("body"), "overstrike"),
+                    f, text=clean_text, font=(SERIF, self.fs("body"), "overstrike"),
                     bg=bg, fg=self.t("done"), anchor="w",
                     wraplength=wrap_w - 70, justify="left"
                 ).pack(side="left", fill="x")
@@ -766,6 +858,10 @@ class StickyCard:
                     if ts_parts:
                         tk.Label(f, text=" | ".join(ts_parts), font=(SANS, self.fs("small")),
                                  bg=bg, fg=self.t("done")).pack(side="right", padx=(4, 0))
+                for tname in task_tags:
+                    tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
+                             bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
+                             ).pack(side="right", padx=(2, 0))
                 self._make_clickable(f, line_idx)
                 self.task_widgets.append((f, line_idx))
                 continue
@@ -774,17 +870,24 @@ class StickyCard:
             m = re.match(r'^[-*]\s*\[\s?\]\s*(.*)', stripped)
             if m:
                 task_text, create_ts, _ = self._split_timestamp(m.group(1))
+                clean_text, task_tags = parse_tags(task_text)
+                if self.active_tag and self.active_tag not in task_tags:
+                    continue
                 f = tk.Frame(self.content_frame, bg=bg)
                 f.pack(fill="x", pady=2)
                 tk.Label(f, text="  \u2610 ", font=(SANS, self.fs("body") - 1), bg=bg, fg=self.t("accent")).pack(side="left", anchor="n")
                 tk.Label(
-                    f, text=task_text, font=(SERIF, self.fs("body")),
+                    f, text=clean_text, font=(SERIF, self.fs("body")),
                     bg=bg, fg=self.t("fg"), anchor="w",
                     wraplength=wrap_w - 70, justify="left"
                 ).pack(side="left", fill="x")
                 if create_ts and self.show_time:
                     tk.Label(f, text=create_ts, font=(SANS, self.fs("small")), bg=bg, fg=self.t("secondary")
                     ).pack(side="right", padx=(4, 0))
+                for tname in task_tags:
+                    tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
+                             bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
+                             ).pack(side="right", padx=(2, 0))
                 self._make_clickable(f, line_idx)
                 self.task_widgets.append((f, line_idx))
                 continue
