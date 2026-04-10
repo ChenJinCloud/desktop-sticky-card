@@ -179,6 +179,7 @@ class StickyCard:
         self.drop_line = None
         self.tag_names = load_tags()
         self.active_tag = None  # None = show all
+        self.show_tags = True
 
         # Restore state
         state = load_state()
@@ -196,6 +197,7 @@ class StickyCard:
         if self.font_size not in FONT_SIZES:
             self.font_size = "M"
         self.user_height = state.get("height", None)
+        self.show_tags = state.get("show_tags", True)
         saved_tag = state.get("active_tag", None)
         if saved_tag and saved_tag in self.tag_names:
             self.active_tag = saved_tag
@@ -254,7 +256,8 @@ class StickyCard:
                 "theme": self.theme_name,
                 "font_size": self.font_size,
                 "height": self.user_height,
-                "active_tag": self.active_tag
+                "active_tag": self.active_tag,
+                "show_tags": self.show_tags
             })
 
     def _on_close(self):
@@ -312,6 +315,18 @@ class StickyCard:
         self.edit_btn.bind("<Enter>", lambda e: self.edit_btn.configure(fg=self.t("fg")))
         self.edit_btn.bind("<Leave>", lambda e: self.edit_btn.configure(
             fg=self.t("accent") if self.is_editing else self.t("secondary")))
+
+        # Tag toggle
+        self.tag_btn = tk.Label(
+            topbar_inner, text="Tag", font=(SANS, 8), bg=self.t("topbar"),
+            fg=self.t("accent") if self.show_tags else self.t("pin_inactive"),
+            cursor="hand2"
+        )
+        self.tag_btn.pack(side="right", padx=(0, 6))
+        self.tag_btn.bind("<Button-1>", self._toggle_show_tags)
+        self.tag_btn.bind("<Enter>", lambda e: self.tag_btn.configure(fg=self.t("fg")))
+        self.tag_btn.bind("<Leave>", lambda e: self.tag_btn.configure(
+            fg=self.t("accent") if self.show_tags else self.t("pin_inactive")))
 
         # Time toggle
         self.time_btn = tk.Label(
@@ -751,6 +766,14 @@ class StickyCard:
             create_ts = cm.group(2)
         return text, create_ts, done_ts
 
+    def _toggle_show_tags(self, event=None):
+        self.show_tags = not self.show_tags
+        self.tag_btn.configure(fg=self.t("accent") if self.show_tags else self.t("pin_inactive"))
+        self._save_geometry()
+        self.last_mtime = 0
+        self._load_content()
+        return "break"
+
     def _toggle_time(self, event=None):
         self.show_time = not self.show_time
         self.time_btn.configure(fg=self.t("accent") if self.show_time else self.t("pin_inactive"))
@@ -858,10 +881,11 @@ class StickyCard:
                     if ts_parts:
                         tk.Label(f, text=" | ".join(ts_parts), font=(SANS, self.fs("small")),
                                  bg=bg, fg=self.t("done")).pack(side="right", padx=(4, 0))
-                for tname in task_tags:
-                    tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
-                             bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
-                             ).pack(side="right", padx=(2, 0))
+                if self.show_tags:
+                    for tname in task_tags:
+                        tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
+                                 bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
+                                 ).pack(side="right", padx=(2, 0))
                 self._make_clickable(f, line_idx)
                 self.task_widgets.append((f, line_idx))
                 continue
@@ -884,10 +908,11 @@ class StickyCard:
                 if create_ts and self.show_time:
                     tk.Label(f, text=create_ts, font=(SANS, self.fs("small")), bg=bg, fg=self.t("secondary")
                     ).pack(side="right", padx=(4, 0))
-                for tname in task_tags:
-                    tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
-                             bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
-                             ).pack(side="right", padx=(2, 0))
+                if self.show_tags:
+                    for tname in task_tags:
+                        tk.Label(f, text=f" {tname} ", font=(SANS, self.fs("small")),
+                                 bg=self.t("accent"), fg="#FFFFFF", padx=4, pady=0
+                                 ).pack(side="right", padx=(2, 0))
                 self._make_clickable(f, line_idx)
                 self.task_widgets.append((f, line_idx))
                 continue

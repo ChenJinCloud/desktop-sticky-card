@@ -9,7 +9,8 @@
   - 标签配置文件 `card-tags.json`（纯字符串数组，用户私有，已 gitignore）
   - 提供 `card-tags.example.json` 模板，GitHub 用户可自定义标签名
   - 标签颜色跟随主题自动切换，无需单独配色
-  - 筛选状态持久化到 `.card-state.json`
+  - 顶栏 Tag 按钮切换任务行内标签 badge 的显示/隐藏（筛选栏不受影响）
+  - 筛选状态、标签显示状态持久化到 `.card-state.json`
   - 切换主题时自动重新加载标签配置（支持热更新）
   - `cardlib.add_tasks()` 新增 `tag` 参数，支持创建任务时指定标签
 
