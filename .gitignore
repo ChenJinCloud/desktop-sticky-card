@@ -3,6 +3,7 @@ card-habits.md
 card-tags.json
 .card-state.json
 .card.lock
+.card.hwnd
 __pycache__/
 *.pyc
 banner.html

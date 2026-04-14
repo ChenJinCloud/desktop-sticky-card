@@ -144,6 +144,33 @@ def parse_tags(text):
     return clean, tags
 
 
+HWND_FILE = os.path.join(SCRIPT_DIR, ".card.hwnd")
+
+
+def _activate_existing_window():
+    """Read the running instance's HWND and bring it to the foreground."""
+    try:
+        with open(HWND_FILE, "r") as f:
+            hwnd = int(f.read().strip())
+    except (OSError, ValueError):
+        return
+    user32 = ctypes.windll.user32
+    if not user32.IsWindow(hwnd):
+        return
+    SW_SHOW = 5
+    user32.ShowWindow(hwnd, SW_SHOW)
+    # AttachThreadInput trick to bypass SetForegroundWindow restrictions
+    fg = user32.GetForegroundWindow()
+    cur_tid = user32.GetWindowThreadProcessId(fg, None)
+    own_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+    user32.AttachThreadInput(own_tid, cur_tid, True)
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        user32.AttachThreadInput(own_tid, cur_tid, False)
+
+
 def ensure_single_instance():
     """Prevent multiple card windows. Uses a lock file with exclusive access."""
     lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
@@ -154,6 +181,7 @@ def ensure_single_instance():
         # Keep file handle alive for process lifetime
         ensure_single_instance._lock = lock_file
     except (OSError, IOError):
+        _activate_existing_window()
         sys.exit(0)
 
 
@@ -217,6 +245,14 @@ class StickyCard:
         self._load_content()
         self._poll_file()
         self._auto_save_state()
+        # Publish HWND so a second launch can bring this window to front
+        try:
+            self.root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            with open(HWND_FILE, "w") as f:
+                f.write(str(hwnd))
+        except Exception:
+            pass
         self.root.after(100, self._fix_focus_hack)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
