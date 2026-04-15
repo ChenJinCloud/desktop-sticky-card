@@ -17,6 +17,11 @@ import os
 import sys
 import re
 import json
+import queue
+import threading
+from ctypes import wintypes
+
+import cardlib
 
 # ── Config ────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -25,6 +30,7 @@ STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
 TAGS_FILE = os.path.join(SCRIPT_DIR, "card-tags.json")
 TAGS_EXAMPLE_FILE = os.path.join(SCRIPT_DIR, "card-tags.example.json")
 HABITS_FILE = os.path.join(SCRIPT_DIR, "card-habits.md")
+HISTORY_DIR = cardlib.HISTORY_DIR
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
 MIN_WIDTH = 260
@@ -33,6 +39,43 @@ RESIZE_EDGE = 6
 
 SERIF = "Georgia"
 SANS = "Segoe UI"
+
+MOD_ALT = 0x0001
+MOD_CONTROL = 0x0002
+WM_HOTKEY = 0x0312
+WM_QUIT = 0x0012
+
+GLOBAL_HOTKEYS = {
+    1001: {
+        "label": "Ctrl+Alt+Space",
+        "action": "toggle_visibility",
+        "modifiers": MOD_CONTROL | MOD_ALT,
+        "vk": 0x20,
+    },
+    1002: {
+        "label": "Ctrl+Alt+N",
+        "action": "quick_add",
+        "modifiers": MOD_CONTROL | MOD_ALT,
+        "vk": ord("N"),
+    },
+}
+
+SHORTCUT_TIPS = [
+    ("Ctrl+Alt+Space", "Show/Hide"),
+    ("Ctrl+Alt+N", "Quick Add"),
+    ("Ctrl+E", "Edit"),
+    ("Ctrl+S", "Save"),
+    ("Enter", "Save Quick Add"),
+    ("Esc", "Cancel"),
+    ("Ctrl+D", "All/Todo"),
+    ("Ctrl+H", "Habits"),
+    ("Ctrl+T", "Time"),
+    ("Ctrl+Shift+T", "Tags"),
+    ("Ctrl+P", "Pinned"),
+    ("Ctrl+Shift+C", "Theme"),
+    ("Ctrl+Shift+S", "Size"),
+    ("Ctrl+Q", "Close"),
+]
 
 # Font size levels: (body, h1, h2, h3, small, topbar)
 FONT_SIZES = {
@@ -117,6 +160,7 @@ def load_state():
 
 def save_state(state):
     try:
+        cardlib.ensure_daily_snapshot("state-save")
         with open(STATE_FILE, "w") as f:
             json.dump(state, f)
     except Exception:
@@ -185,6 +229,45 @@ def ensure_single_instance():
         sys.exit(0)
 
 
+class GlobalHotkeys:
+    """Register process-level Windows hotkeys without adding dependencies."""
+
+    def __init__(self, action_queue):
+        self.action_queue = action_queue
+        self.thread = None
+        self.thread_id = None
+        self.registered_ids = []
+
+    def start(self):
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        if self.thread_id:
+            ctypes.windll.user32.PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0)
+
+    def _run(self):
+        user32 = ctypes.windll.user32
+        self.thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
+        try:
+            for hotkey_id, hotkey in GLOBAL_HOTKEYS.items():
+                ok = user32.RegisterHotKey(
+                    None, hotkey_id, hotkey["modifiers"], hotkey["vk"]
+                )
+                if ok:
+                    self.registered_ids.append(hotkey_id)
+
+            msg = wintypes.MSG()
+            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                if msg.message == WM_HOTKEY:
+                    hotkey = GLOBAL_HOTKEYS.get(int(msg.wParam))
+                    if hotkey:
+                        self.action_queue.put(hotkey["action"])
+        finally:
+            for hotkey_id in self.registered_ids:
+                user32.UnregisterHotKey(None, hotkey_id)
+
+
 class StickyCard:
     def __init__(self):
         self.root = tk.Tk()
@@ -211,6 +294,11 @@ class StickyCard:
         self.show_tags = True
         self.collapsed_sections = set()  # h2 titles that are collapsed
         self.habits_mode = False
+        self.quick_add_mode = False
+        self.quick_add_line = None
+        self.saving_edit = False
+        self.hotkey_queue = queue.Queue()
+        self.hotkeys = GlobalHotkeys(self.hotkey_queue)
 
         # Restore state
         state = load_state()
@@ -233,6 +321,7 @@ class StickyCard:
         saved_tag = state.get("active_tag", None)
         if saved_tag and saved_tag in self.tag_names:
             self.active_tag = saved_tag
+        cardlib.ensure_daily_snapshot("startup")
         self._check_habits_reset(state)
         self.root.configure(bg=self.t("border"))
         init_h = self.user_height if self.user_height else MIN_HEIGHT
@@ -245,6 +334,8 @@ class StickyCard:
         self._load_content()
         self._poll_file()
         self._auto_save_state()
+        self.hotkeys.start()
+        self._poll_hotkey_actions()
         # Publish HWND so a second launch can bring this window to front
         try:
             self.root.update_idletasks()
@@ -286,6 +377,7 @@ class StickyCard:
                     text = f.read()
                 new_text = re.sub(r'\[x\]', '[ ]', text, flags=re.IGNORECASE)
                 if new_text != text:
+                    cardlib.ensure_daily_snapshot("habits-reset")
                     with open(HABITS_FILE, "w", encoding="utf-8") as f:
                         f.write(new_text)
             except Exception:
@@ -302,6 +394,27 @@ class StickyCard:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+
+    def _toggle_visibility(self, event=None):
+        if self.root.state() == "withdrawn":
+            self._show_window()
+        else:
+            if self.quick_add_mode and self.is_editing:
+                self._save_edit()
+            self.root.withdraw()
+        return "break"
+
+    def _poll_hotkey_actions(self):
+        while True:
+            try:
+                action = self.hotkey_queue.get_nowait()
+            except queue.Empty:
+                break
+            if action == "toggle_visibility":
+                self._toggle_visibility()
+            elif action == "quick_add":
+                self._quick_add()
+        self.root.after(50, self._poll_hotkey_actions)
 
     def _save_geometry(self):
         geo = self.root.geometry()
@@ -323,6 +436,7 @@ class StickyCard:
 
     def _on_close(self):
         self._save_geometry()
+        self.hotkeys.stop()
         self.root.destroy()
 
     # ── UI ────────────────────────────────────────────
@@ -494,6 +608,9 @@ class StickyCard:
 
             tk.Frame(self.card, bg=self.t("hr"), height=1).pack(fill="x")
 
+        # ── Shortcut tips ──
+        self._build_shortcut_tips()
+
         # ── Content area ──
         self.content_frame = tk.Frame(self.card, bg=self.t("bg"))
         self.content_frame.pack(fill="both", expand=True, padx=20, pady=(12, 16))
@@ -524,13 +641,75 @@ class StickyCard:
         cancel_btn.bind("<Button-1>", lambda e: self._cancel_edit())
 
         self.editor.bind("<Control-s>", lambda e: self._save_edit())
+        self.editor.bind("<Control-Return>", lambda e: self._save_edit())
+        self.editor.bind("<Return>", self._quick_add_return)
         self.editor.bind("<Escape>", lambda e: self._cancel_edit())
+        self.editor.bind("<FocusOut>", self._editor_focus_out)
 
         # ── Resize edges ──
         self.root.bind("<Motion>", self._resize_cursor)
         self.root.bind("<Button-1>", self._resize_start, add="+")
         self.root.bind("<B1-Motion>", self._resize_move, add="+")
         self.root.bind("<ButtonRelease-1>", self._resize_end, add="+")
+        self._bind_keyboard_shortcuts()
+
+    def _build_shortcut_tips(self):
+        tip_frame = tk.Frame(self.card, bg=self.t("topbar"))
+        tip_frame.pack(side="bottom", fill="x")
+        tk.Frame(tip_frame, bg=self.t("hr"), height=1).pack(fill="x")
+        tip_text = "Keys: " + "  |  ".join(f"{keys} {label}" for keys, label in SHORTCUT_TIPS)
+        tk.Label(
+            tip_frame,
+            text=tip_text,
+            font=(SANS, self.fs("small")),
+            bg=self.t("topbar"),
+            fg=self.t("secondary"),
+            anchor="w",
+            justify="left",
+            wraplength=max(220, self.card_width - 28),
+        ).pack(fill="x", padx=14, pady=(5, 6))
+        history_label = tk.Label(
+            tip_frame,
+            text=f"Local history: {HISTORY_DIR}",
+            font=(SANS, self.fs("small")),
+            bg=self.t("topbar"),
+            fg=self.t("secondary"),
+            anchor="w",
+            justify="left",
+            wraplength=max(220, self.card_width - 28),
+            cursor="hand2",
+        )
+        history_label.pack(fill="x", padx=14, pady=(0, 6))
+        history_label.bind("<Button-1>", lambda e: self._open_history_dir())
+
+    def _open_history_dir(self):
+        os.makedirs(HISTORY_DIR, exist_ok=True)
+        try:
+            os.startfile(HISTORY_DIR)
+        except Exception:
+            pass
+
+    def _bind_keyboard_shortcuts(self):
+        def bind(sequence, handler, allow_editing=False):
+            def run(event=None):
+                if self.is_editing and not allow_editing:
+                    return None
+                return handler(event)
+            self.root.bind_all(sequence, run)
+
+        bind("<Control-e>", self._toggle_edit, allow_editing=True)
+        bind("<Control-n>", self._quick_add)
+        bind("<Control-d>", self._toggle_fold)
+        bind("<Control-h>", self._toggle_habits_if_available)
+        bind("<Control-t>", self._toggle_time)
+        bind("<Control-Shift-T>", self._toggle_show_tags)
+        bind("<Control-Shift-t>", self._toggle_show_tags)
+        bind("<Control-p>", self._toggle_pin)
+        bind("<Control-Shift-C>", self._next_theme)
+        bind("<Control-Shift-c>", self._next_theme)
+        bind("<Control-Shift-S>", self._next_font_size)
+        bind("<Control-Shift-s>", self._next_font_size)
+        bind("<Control-q>", lambda e: self._on_close())
 
     # ── Edit mode ─────────────────────────────────────
 
@@ -541,8 +720,32 @@ class StickyCard:
             self._enter_edit()
         return "break"
 
-    def _enter_edit(self):
+    @staticmethod
+    def _find_insert_position(lines):
+        last_task = -1
+        separator = -1
+        for i, line in enumerate(lines):
+            s = line.strip()
+            if re.match(r'^[-*]\s*\[[ x]\]', s, re.IGNORECASE):
+                last_task = i
+            if re.match(r'^-{3,}$', s):
+                separator = i
+        if last_task >= 0:
+            return last_task + 1
+        if separator >= 0:
+            return separator
+        return len(lines)
+
+    def _prepare_quick_add_text(self, text):
+        lines = text.splitlines()
+        pos = self._find_insert_position(lines)
+        lines.insert(pos, "- [ ] ")
+        return "\n".join(lines), pos + 1, len("- [ ] ")
+
+    def _enter_edit(self, quick_add=False):
         self.is_editing = True
+        self.quick_add_mode = quick_add
+        self.quick_add_line = None
         self.edit_btn.configure(text="Editing", fg=self.t("accent"))
         self.content_frame.pack_forget()
         self.editor_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
@@ -551,37 +754,100 @@ class StickyCard:
                 text = f.read()
         except FileNotFoundError:
             text = ""
+        if quick_add:
+            text, line_no, col_no = self._prepare_quick_add_text(text)
+            self.quick_add_line = line_no
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", text)
+        if quick_add and self.quick_add_line:
+            self.editor.mark_set("insert", f"{line_no}.{col_no}")
+            self.editor.see("insert")
         self.editor.focus_set()
 
+    def _cleanup_quick_add_placeholder(self, text):
+        if not self.quick_add_line:
+            return text
+        lines = text.split("\n")
+        idx = self.quick_add_line - 1
+        if 0 <= idx < len(lines) and re.match(r'^[-*]\s*\[\s?\]\s*$', lines[idx]):
+            del lines[idx]
+        return "\n".join(lines)
+
     def _save_edit(self):
+        if not self.is_editing or self.saving_edit:
+            return "break"
         from datetime import datetime
-        text = self.editor.get("1.0", "end-1c")
-        if not self.habits_mode:
-            now = datetime.now().strftime("%m/%d %H:%M")
-            # Auto-add timestamp to new unchecked tasks that don't have one
-            lines = text.split("\n")
-            for i, line in enumerate(lines):
-                if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
-                    lines[i] = line.rstrip() + f" `{now}`"
-            text = "\n".join(lines)
-        with open(self._active_file, "w", encoding="utf-8") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
-        self.last_mtime = 0  # force refresh
-        self._exit_edit()
+        self.saving_edit = True
+        try:
+            text = self.editor.get("1.0", "end-1c")
+            if self.quick_add_mode:
+                text = self._cleanup_quick_add_placeholder(text)
+            if not self.habits_mode:
+                now = datetime.now().strftime("%m/%d %H:%M")
+                # Auto-add timestamp to new unchecked tasks that don't have one
+                lines = text.split("\n")
+                for i, line in enumerate(lines):
+                    if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
+                        lines[i] = line.rstrip() + f" `{now}`"
+                text = "\n".join(lines)
+            cardlib.ensure_daily_snapshot("edit-save")
+            with open(self._active_file, "w", encoding="utf-8") as f:
+                f.write(text)
+                if not text.endswith("\n"):
+                    f.write("\n")
+            self.last_mtime = 0  # force refresh
+            self._exit_edit()
+        finally:
+            self.saving_edit = False
+        return "break"
 
     def _cancel_edit(self):
         self._exit_edit()
+        return "break"
 
     def _exit_edit(self):
         self.is_editing = False
+        self.quick_add_mode = False
+        self.quick_add_line = None
         self.edit_btn.configure(text="Edit", fg=self.t("secondary"))
         self.editor_frame.pack_forget()
         self.content_frame.pack(fill="both", expand=True, padx=20, pady=(12, 16))
         self._load_content()
+
+    def _quick_add_return(self, event=None):
+        if self.quick_add_mode:
+            return self._save_edit()
+        return None
+
+    def _editor_focus_out(self, event=None):
+        if self.quick_add_mode:
+            self.root.after(80, self._save_quick_add_if_unfocused)
+
+    def _save_quick_add_if_unfocused(self):
+        if not self.quick_add_mode or not self.is_editing:
+            return
+        focused = self.root.focus_get()
+        if focused is None or not self._is_descendant(focused, self.editor_frame):
+            self._save_edit()
+
+    @staticmethod
+    def _is_descendant(widget, parent):
+        while widget is not None:
+            if widget == parent:
+                return True
+            widget = widget.master
+        return False
+
+    def _quick_add(self, event=None):
+        self._show_window()
+        if self.habits_mode:
+            self.habits_mode = False
+            self._apply_theme()
+        if self.is_editing:
+            self.editor.focus_set()
+            return "break"
+        self._enter_edit(quick_add=True)
+        return "break"
 
     # ── Resize ────────────────────────────────────────
 
@@ -704,6 +970,7 @@ class StickyCard:
                 if not self.habits_mode:
                     now = datetime.now().strftime("%m/%d %H:%M")
                     lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
+            cardlib.ensure_daily_snapshot("task-toggle")
             with open(target, "w", encoding="utf-8") as f:
                 f.writelines(lines)
         except Exception:
@@ -825,6 +1092,7 @@ class StickyCard:
             if src_line_idx < dst_line_idx:
                 dst_line_idx -= 1
             lines.insert(dst_line_idx, line)
+            cardlib.ensure_daily_snapshot("task-reorder")
             with open(target, "w", encoding="utf-8") as f:
                 f.writelines(lines)
         except Exception:
@@ -851,6 +1119,11 @@ class StickyCard:
         self.habits_mode = not self.habits_mode
         self._save_geometry()
         self._apply_theme()
+        return "break"
+
+    def _toggle_habits_if_available(self, event=None):
+        if os.path.exists(HABITS_FILE):
+            return self._toggle_habits(event)
         return "break"
 
     def _toggle_section(self, title):

@@ -4,6 +4,7 @@ card-tags.json
 .card-state.json
 .card.lock
 .card.hwnd
+card-history/
 __pycache__/
 *.pyc
 banner.html

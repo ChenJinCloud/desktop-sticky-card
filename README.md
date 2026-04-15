@@ -17,10 +17,12 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 - **5 档字号** — XS / S / M / L / XL
 - **可调大小** — 拖拽边缘调整宽高
 - **卡片上直接编辑** — 点 Edit 进入编辑模式，Ctrl+S 保存，Esc 取消
+- **全局快捷键** — Ctrl+Alt+Space 显示/隐藏卡片，Ctrl+Alt+N 快速添加任务
 - **每日习惯打卡** — 独立视图，每天自动重置，顶栏 Habits 按钮切换
 - **可折叠分区** — `##` 标题点击可展开/收起，适合放 OKR、目标、备忘等长内容
 - **标签系统** — 任务加 `#标签名` 分类，筛选栏一键过滤，标签 badge 可显示/隐藏
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
+- **本地历史快照** — 每天自动保留一份完整文件快照，保存在应用目录下的 `card-history/`
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
 - **高 DPI 支持** — Per-Monitor DPI 感知，文字清晰锐利
@@ -92,6 +94,29 @@ cp card-tags.example.json card-tags.json
 | Edit → Ctrl+S | 保存编辑 |
 | Edit → Esc | 取消编辑 |
 
+## 快捷键
+
+窗口底部会显示当前快捷键提示。默认快捷键如下：
+
+| 快捷键 | 功能 |
+|------|------|
+| `Ctrl+Alt+Space` | 全局显示 / 隐藏卡片 |
+| `Ctrl+Alt+N` | 全局快速添加任务 |
+| `Ctrl+N` | 在卡片聚焦时快速添加任务 |
+| `Enter` | 快速添加模式下保存并返回卡片 |
+| 点击编辑框外 | 快速添加模式下保存并返回卡片 |
+| `Ctrl+E` | 进入编辑；编辑中再次按下则保存 |
+| `Ctrl+S` / `Ctrl+Enter` | 保存编辑 |
+| `Esc` | 取消编辑 |
+| `Ctrl+D` | All / Todo 视图切换 |
+| `Ctrl+H` | Habits 视图切换 |
+| `Ctrl+T` | 显示 / 隐藏时间戳 |
+| `Ctrl+Shift+T` | 显示 / 隐藏标签 badge |
+| `Ctrl+P` | Pinned / Unpinned 切换 |
+| `Ctrl+Shift+C` | 切换主题 |
+| `Ctrl+Shift+S` | 切换字号 |
+| `Ctrl+Q` | 关闭卡片 |
+
 ## 开机自启（Windows）
 
 将 `sticky-card.pyw` 的快捷方式放入启动目录即可：
@@ -101,6 +126,26 @@ cp card-tags.example.json card-tags.json
 3. 将生成的快捷方式剪切到启动文件夹
 
 取消自启：删除启动文件夹中的快捷方式即可。
+
+## 本地历史快照
+
+应用会在本地自动保存每日快照，目录为：
+
+```text
+card-history/YYYY-MM-DD/
+```
+
+窗口底部会显示完整路径，点击路径可打开文件夹。快照保存在当前应用文件夹内，不会上传到任何远程服务。
+
+每个日期文件夹会保存当天首次触发快照时的完整文件副本：
+
+- `card-content.md`
+- `card-habits.md`
+- `card-tags.json`
+- `.card-state.json`
+- `manifest.json`
+
+这个策略是“每天一个完整版本”，用于恢复和追溯；不会自动切割或移动你的当前卡片内容。
 
 ## 卡片顶栏
 
@@ -124,6 +169,7 @@ cp card-tags.example.json card-tags.json
 ├── card-habits.example.md  # 每日习惯模板
 ├── card-tags.json          # 标签配置（自定义，首次从 example 复制）
 ├── card-tags.example.json  # 标签配置模板
+├── card-history/            # 本地每日历史快照（自动生成）
 ├── sticky-card.pyw         # 卡片 GUI
 ├── cardlib.py              # 共享库
 ├── chat.py                 # 对话终端
