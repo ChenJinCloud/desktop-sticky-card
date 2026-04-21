@@ -6,10 +6,51 @@ Used by chat.py, card.py, and sticky-card.pyw.
 import os
 import re
 import json
+import shutil
 from datetime import datetime
 
-CONTENT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "card-content.md")
-TAGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "card-tags.json")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
+HABITS_FILE = os.path.join(SCRIPT_DIR, "card-habits.md")
+TAGS_FILE = os.path.join(SCRIPT_DIR, "card-tags.json")
+STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
+HISTORY_DIR = os.path.join(SCRIPT_DIR, "card-history")
+
+SNAPSHOT_FILES = [
+    ("card-content.md", CONTENT_FILE),
+    ("card-habits.md", HABITS_FILE),
+    ("card-tags.json", TAGS_FILE),
+    (".card-state.json", STATE_FILE),
+]
+
+
+def ensure_daily_snapshot(reason="auto"):
+    """Create one non-overwriting local snapshot per day."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    snapshot_dir = os.path.join(HISTORY_DIR, today)
+    manifest_path = os.path.join(snapshot_dir, "manifest.json")
+
+    if os.path.exists(manifest_path):
+        return snapshot_dir
+
+    os.makedirs(snapshot_dir, exist_ok=True)
+    copied = []
+    for filename, source in SNAPSHOT_FILES:
+        if not os.path.exists(source):
+            continue
+        shutil.copy2(source, os.path.join(snapshot_dir, filename))
+        copied.append(filename)
+
+    manifest = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "reason": reason,
+        "source_dir": SCRIPT_DIR,
+        "files": copied,
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    return snapshot_dir
 
 
 def read_lines():
@@ -20,6 +61,7 @@ def read_lines():
 
 
 def write_lines(lines):
+    ensure_daily_snapshot("before-write")
     with open(CONTENT_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
@@ -129,6 +171,7 @@ def set_title(title):
 def overwrite(text):
     """Replace entire card content."""
     text = text.replace("\\n", "\n")
+    ensure_daily_snapshot("overwrite")
     with open(CONTENT_FILE, "w", encoding="utf-8") as f:
         f.write(text if text.endswith("\n") else text + "\n")
 
