@@ -4,16 +4,18 @@ Medium style - file-driven - auto-refresh - resizable - editable
 """
 
 import tkinter as tk
+from tkinter import messagebox
 import os
 import sys
 import re
-import json
 import fcntl
+
+import cardlib
 
 # ── Config ────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
-CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
-STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
+CONTENT_FILE = cardlib.CONTENT_FILE
+STATE_FILE = cardlib.STATE_FILE
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
 MIN_WIDTH = 260
@@ -96,24 +98,20 @@ THEME_NAMES = list(THEMES.keys())
 
 
 def load_state():
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return cardlib.read_json_file(STATE_FILE, default={})
 
 
 def save_state(state):
     try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+        cardlib.update_json_file(STATE_FILE, state, reason="state-save")
+    except Exception as exc:
+        print(f"Unable to save card state: {exc}", file=sys.stderr)
 
 
 def ensure_single_instance():
     """Prevent multiple card windows. Uses fcntl file lock on macOS."""
-    lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
+    lock_path = os.path.join(str(cardlib.DATA_DIR), ".card.lock")
+    os.makedirs(str(cardlib.DATA_DIR), exist_ok=True)
     try:
         lock_file = open(lock_path, "w")
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -143,9 +141,12 @@ class StickyCard:
         self.drag_data = {"x": 0, "y": 0}
         self.resize_data = {"active": False, "edge": None}
         self.card_width = DEFAULT_WIDTH
+        self.edit_original_text = None
 
         # Restore state
         state = load_state()
+        self.is_pinned = state.get("is_pinned", True)
+        self.root.attributes("-topmost", self.is_pinned)
         sx = self.root.winfo_screenwidth()
         x = state.get("x", sx - DEFAULT_WIDTH - 50)
         y = state.get("y", 50)
@@ -199,7 +200,8 @@ class StickyCard:
                 "show_time": self.show_time,
                 "show_done": self.show_done,
                 "theme": self.theme_name,
-                "font_size": self.font_size
+                "font_size": self.font_size,
+                "is_pinned": self.is_pinned,
             })
 
     def _on_close(self):
@@ -369,24 +371,36 @@ class StickyCard:
                 text = f.read()
         except FileNotFoundError:
             text = ""
+        self.edit_original_text = text
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", text)
         self.editor.focus_set()
 
     def _save_edit(self):
         text = self.editor.get("1.0", "end-1c")
-        with open(CONTENT_FILE, "w", encoding="utf-8") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
-        self.last_mtime = 0  # force refresh
-        self._exit_edit()
+        if not text.endswith("\n"):
+            text += "\n"
+        try:
+            cardlib.write_text_file(
+                CONTENT_FILE,
+                text,
+                reason="edit-save",
+                expected_text=self.edit_original_text,
+            )
+            self.edit_original_text = text
+            self.last_mtime = 0  # force refresh
+            self._exit_edit()
+        except cardlib.ContentConflictError as exc:
+            messagebox.showwarning("Sticky Card", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to save:\n{exc}")
 
     def _cancel_edit(self):
         self._exit_edit()
 
     def _exit_edit(self):
         self.is_editing = False
+        self.edit_original_text = None
         self.edit_btn.configure(text="Edit", fg=self.t("secondary"))
         self.editor_frame.pack_forget()
         self.content_frame.pack(fill="both", expand=True, padx=20, pady=(12, 16))
@@ -491,22 +505,11 @@ class StickyCard:
         if self.is_editing:
             return
         try:
-            from datetime import datetime
-            lines = list(open(CONTENT_FILE, "r", encoding="utf-8"))
-            if line_idx < 0 or line_idx >= len(lines):
-                return
-            line = lines[line_idx]
-            if re.search(r'\[x\]', line, re.IGNORECASE):
-                lines[line_idx] = re.sub(r'\[x\]', '[ ]', line, count=1, flags=re.IGNORECASE)
-                lines[line_idx] = re.sub(r'\s*done:`\d{2}/\d{2}\s+\d{2}:\d{2}`', '', lines[line_idx])
-            elif re.search(r'\[\s?\]', line):
-                now = datetime.now().strftime("%m/%d %H:%M")
-                lines[line_idx] = re.sub(r'\[\s?\]', '[x]', line, count=1)
-                lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
-            with open(CONTENT_FILE, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-        except Exception:
-            pass
+            changed = cardlib.toggle_task_at_line(CONTENT_FILE, line_idx, record_done=True)
+            if not changed:
+                self.last_mtime = 0
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to update task:\n{exc}")
 
     def _make_clickable(self, widget, line_idx):
         widget.bind("<Button-1>", lambda e, idx=line_idx: self._toggle_task(idx))

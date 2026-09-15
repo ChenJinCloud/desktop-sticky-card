@@ -39,6 +39,14 @@ def usage():
 """)
 
 
+def parse_task_number(value):
+    try:
+        number = int(value)
+    except ValueError:
+        return None
+    return number if number > 0 else None
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -54,13 +62,25 @@ def main():
         for t in cardlib.add_tasks(cardlib.split_multi_tasks(rest)):
             print(f"  + {t}")
     elif cmd == "done" and rest:
-        ok, text = cardlib.toggle_task(int(rest), True)
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.toggle_task(number, True)
         print(f"  \u2713 {text}" if ok else f"  error: {text}")
     elif cmd == "undo" and rest:
-        ok, text = cardlib.toggle_task(int(rest), False)
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.toggle_task(number, False)
         print(f"  \u25cb {text}" if ok else f"  error: {text}")
     elif cmd == "rm" and rest:
-        ok, text = cardlib.remove_task(int(rest))
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.remove_task(number)
         print(f"  - {text}" if ok else f"  error: {text}")
     elif cmd == "clear":
         print(f"  cleared {cardlib.clear_done()} done tasks")
@@ -75,7 +95,9 @@ def main():
         subprocess.run([editor, cardlib.CONTENT_FILE])
     else:
         usage()
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

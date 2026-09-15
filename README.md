@@ -25,6 +25,7 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 - **本地历史快照** — 每天自动保留一份完整文件快照，保存在应用目录下的 `card-history/`
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
+- **安全本地写入** — GUI、CLI、对话终端共用跨进程锁和原子写入，避免互相覆盖
 - **高 DPI 支持** — Per-Monitor DPI 感知，文字清晰锐利
 - **状态自动保存** — 窗口位置、大小、主题、字号、显示偏好全部持久化
 - **零依赖** — 仅 Python 标准库 tkinter
@@ -147,6 +148,22 @@ card-history/YYYY-MM-DD/
 
 这个策略是“每天一个完整版本”，用于恢复和追溯；不会自动切割或移动你的当前卡片内容。
 
+## 数据位置
+
+默认情况下，内容、偏好和历史快照仍保存在程序目录中，兼容已有用户。
+
+如需将个人数据与源码分开，可设置 `DESKTOP_STICKY_CARD_HOME`：
+
+```bash
+# macOS / Linux
+export DESKTOP_STICKY_CARD_HOME="$HOME/.desktop-sticky-card"
+
+# Windows PowerShell
+$env:DESKTOP_STICKY_CARD_HOME="$env:USERPROFILE\.desktop-sticky-card"
+```
+
+设置后，GUI、CLI 和对话终端会共同使用该目录。程序目录仍只保存代码和示例文件。
+
 ## 卡片顶栏
 
 | 按钮 | 功能 |
@@ -172,12 +189,14 @@ card-history/YYYY-MM-DD/
 ├── card-history/            # 本地每日历史快照（自动生成）
 ├── sticky-card.pyw         # 卡片 GUI
 ├── cardlib.py              # 共享库
+├── shared/cardstore.py     # 跨平台安全存储、锁、快照和任务解析
 ├── chat.py                 # 对话终端
 ├── card.py                 # CLI 工具
 ├── start.bat               # 一键启动：卡片 + 对话终端
 ├── chat.bat                # 单独启动对话终端
 ├── card.bat                # CLI 入口
 ├── .card-state.json        # 显示偏好（自动生成）
+├── tests/                  # 标准库单元测试
 ├── README.md
 └── CHANGELOG.md
 ```
@@ -231,8 +250,15 @@ card-history/YYYY-MM-DD/
 
 ## 环境要求
 
-- Python 3.8+（需含 tkinter，Windows 默认包含）
+- Python 3.8+（需要安装 Python；python.org 的标准 Windows 安装器通常包含 tkinter）
 - Windows 10/11
+
+开发验证：
+
+```bash
+python -m unittest discover -v
+python -m py_compile card.py cardlib.py chat.py sticky-card.pyw
+```
 
 ## License
 

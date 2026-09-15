@@ -38,11 +38,13 @@
 ## 快速启动
 
 ```bash
+# 在完整项目目录中运行；macOS 版会复用上一级 shared/ 存储模块
+
 # 首次使用：复制示例内容文件
 cp card-content.example.md card-content.md
 
 # 赋予执行权限（仅首次）
-chmod +x start.sh chat.sh card.sh
+chmod +x start.sh chat.sh card.sh python-with-tk.sh
 
 # 启动（卡片 + 对话终端）
 ./start.sh
@@ -52,7 +54,7 @@ chmod +x start.sh chat.sh card.sh
 
 ```bash
 # 只启动卡片
-python3 sticky-card.py
+./python-with-tk.sh sticky-card.py
 
 # 只启动对话终端
 ./chat.sh
@@ -60,6 +62,12 @@ python3 sticky-card.py
 # CLI 单命令
 ./card.sh add "写周报"
 ./card.sh done 1
+```
+
+GUI、CLI 和对话终端使用同一套跨进程锁、原子写入和每日快照逻辑。如需将个人数据与源码分开，可在启动前设置：
+
+```bash
+export DESKTOP_STICKY_CARD_HOME="$HOME/.desktop-sticky-card"
 ```
 
 ## 卡片顶栏
@@ -89,6 +97,10 @@ mac/
 ├── .card-state.json   # 显示偏好（自动生成）
 └── README.md
 ```
+
+项目根目录的 `shared/cardstore.py` 是 Windows 与 macOS 共用的数据层，因此分发时需要同时保留 `shared/` 目录。
+
+`python-with-tk.sh` 会优先使用当前 `python3`；如果 Homebrew Python 没有 tkinter，会尝试 macOS 的 `/usr/bin/python3`。也可以通过 `PYTHON_WITH_TK` 明确指定解释器。
 
 ## License
 

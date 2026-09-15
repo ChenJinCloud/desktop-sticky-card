@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- GUI、CLI 和对话终端的写入改为跨进程锁保护的原子替换，避免并发修改互相覆盖或留下半写文件
+- 编辑模式会检测文件是否被外部修改，冲突时停止覆盖并提示重新加载
+- 重复执行 `done` 不再追加多个完成时间
+- 批量任务解析保留版本号、年份等任务正文中的数字
+- CLI 对无效任务编号返回可读错误和非零退出码，不再抛出 traceback
+- 每日习惯的 `habits_last_reset` 不再被定时状态保存覆盖
+- Pinned 状态现在会持久化
+- macOS 启动器会自动寻找带 tkinter 的 Python，避免 Homebrew Python 缺少 `_tkinter` 时直接崩溃
+
+### Changed
+- Windows 与 macOS 的 CLI/对话终端改为复用 `shared/cardstore.py` 中的同一套业务逻辑
+- 支持通过 `DESKTOP_STICKY_CARD_HOME` 将用户数据与源码目录分离，同时保持旧目录为默认值
+- 新增 Windows、macOS、Linux 的标准库测试工作流
+
 ## [0.17.0] - 2026-04-15
 
 ### Added
