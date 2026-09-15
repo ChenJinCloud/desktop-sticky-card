@@ -60,9 +60,13 @@ chmod +x start.sh chat.sh card.sh python-with-tk.sh
 ./chat.sh
 
 # CLI 单命令
+./card.sh 写周报
+./card.sh 整理 周报 数据
 ./card.sh add "写周报"
 ./card.sh done 1
 ```
+
+直接输入的文字会自动作为新任务；因此任务包含空格时也不需要加引号。`add` 写法仍然兼容。
 
 GUI、CLI 和对话终端使用同一套跨进程锁、原子写入和每日快照逻辑。如需将个人数据与源码分开，可在启动前设置：
 

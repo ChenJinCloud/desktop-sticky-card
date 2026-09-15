@@ -93,6 +93,13 @@ def main():
     elif cmd == "edit":
         editor = os.environ.get("EDITOR", "nano")
         subprocess.run([editor, cardlib.CONTENT_FILE])
+    elif args:
+        # Convenience mode: any unrecognised input is a new task.  Joining
+        # argv here means users can type `./card.sh write weekly report`
+        # without quoting the task; explicit commands above remain unchanged.
+        text = " ".join(args)
+        for t in cardlib.add_tasks(cardlib.split_multi_tasks(text)):
+            print(f"  + {t}")
     else:
         usage()
         return 2
