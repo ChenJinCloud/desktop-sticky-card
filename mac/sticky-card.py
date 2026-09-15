@@ -125,11 +125,6 @@ class StickyCard:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Sticky Card")
-        self.root.attributes("-alpha", 0.97)
-        self.root.attributes("-topmost", True)
-
-        # macOS: use overrideredirect but handle focus carefully
-        self.root.overrideredirect(True)
 
         self.is_pinned = True
         self.is_editing = False
@@ -146,7 +141,6 @@ class StickyCard:
         # Restore state
         state = load_state()
         self.is_pinned = state.get("is_pinned", True)
-        self.root.attributes("-topmost", self.is_pinned)
         sx = self.root.winfo_screenwidth()
         x = state.get("x", sx - DEFAULT_WIDTH - 50)
         y = state.get("y", 50)
@@ -164,10 +158,17 @@ class StickyCard:
 
         self._build_ui()
         self._load_content()
+        # Tk 8.5 (the Python bundled with macOS) can leave a window showing
+        # only its backing surface when transparency/topmost/withdraw are
+        # applied before the widget tree is mapped.  Map and paint first,
+        # then apply the optional window attributes on the next event-loop
+        # turn.  A normal macOS title bar is intentionally retained because
+        # it is substantially more reliable than overrideredirect on recent
+        # macOS releases.
+        self.root.update_idletasks()
         self._poll_file()
         self._auto_save_state()
-        # macOS focus workaround: brief withdraw/deiconify cycle
-        self.root.after(100, self._fix_focus_mac)
+        self.root.after_idle(self._finish_window_setup)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
 
@@ -179,15 +180,11 @@ class StickyCard:
         """Get font size from current level."""
         return FONT_SIZES[self.font_size][key]
 
-    def _fix_focus_mac(self):
-        """macOS focus fix: withdraw and re-show to ensure window is interactive."""
-        self.root.withdraw()
-        self.root.after(50, self._show_window)
-
-    def _show_window(self):
-        self.root.deiconify()
+    def _finish_window_setup(self):
+        """Apply macOS window attributes only after child widgets are mapped."""
+        self.root.attributes("-alpha", 0.97)
+        self.root.attributes("-topmost", self.is_pinned)
         self.root.lift()
-        self.root.focus_force()
 
     def _save_geometry(self):
         geo = self.root.geometry()

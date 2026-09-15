@@ -28,12 +28,12 @@
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
-- **零依赖** — 仅 Python 标准库 tkinter
+- **轻依赖** — 仅 Python 与 tkinter，不需要应用框架
 
 ## 环境要求
 
 - Python 3.8+
-- macOS 自带 tkinter（如果使用 Homebrew Python，需要 `brew install python-tk`）
+- Tk 8.6+。近期 macOS 上不要使用系统 Python 自带的 Tk 8.5；它可能只显示空白窗口。推荐安装 `brew install python-tk@3.14`
 
 ## 快速启动
 
@@ -100,7 +100,7 @@ mac/
 
 项目根目录的 `shared/cardstore.py` 是 Windows 与 macOS 共用的数据层，因此分发时需要同时保留 `shared/` 目录。
 
-`python-with-tk.sh` 会优先使用当前 `python3`；如果 Homebrew Python 没有 tkinter，会尝试 macOS 的 `/usr/bin/python3`。也可以通过 `PYTHON_WITH_TK` 明确指定解释器。
+`python-with-tk.sh` 会依次寻找带 Tk 8.6+ 的 Python，并拒绝已知可能产生空白窗口的系统 Tk 8.5。也可以通过 `PYTHON_WITH_TK` 明确指定兼容的解释器。
 
 ## License
 
