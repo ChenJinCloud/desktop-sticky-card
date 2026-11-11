@@ -18,7 +18,7 @@
 
 ## 特性
 
-- **桌面置顶** — 悬浮在所有窗口之上，始终可见（可切换）
+- **菜单栏卡片** — 鼠标悬停展开，或固定在屏幕右上角持续显示
 - **点击勾选** — 直接在卡片上点击任务切换完成状态，自动记录完成时间
 - **All / Todo 视图** — 一键切换，展开全部或只看未完成
 - **8 套主题** — Light / Dark / Macaron (Rose/Mint/Lavender) / Morandi (Green/Blue/Rose)
@@ -28,7 +28,7 @@
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
-- **轻依赖** — 仅 Python 与 tkinter，不需要应用框架
+- **轻依赖** — 使用 Python、tkinter 和 macOS Swift 命令行工具
 
 ## 环境要求
 
@@ -55,9 +55,10 @@ bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/ChenJinCloud/d
 
 ```bash
 # 在完整项目目录中运行；macOS 版会复用上一级 shared/ 存储模块
+cd mac
 
-# 首次使用：复制示例内容文件
-cp card-content.example.md card-content.md
+# 首次使用：仅在内容文件不存在时复制示例
+test -e card-content.md || test -L card-content.md || cp card-content.example.md card-content.md
 
 # 赋予执行权限（仅首次）
 chmod +x start.sh chat.sh card.sh python-with-tk.sh
@@ -89,20 +90,20 @@ chmod +x start.sh chat.sh card.sh python-with-tk.sh
 
 ## Agent 调用 CLI
 
-Agent 可以通过 `mac/card.sh` 读取或更新同一张卡片。默认数据位于 `mac/card-content.md`；如果 GUI 使用了 `DESKTOP_STICKY_CARD_HOME`，调用 CLI 时也要设置为相同目录。
+Agent 可以通过 CLI 读取或更新同一张卡片。默认数据位于安装目录的 `mac/card-content.md`；如果 GUI 使用了 `DESKTOP_STICKY_CARD_HOME`，调用 CLI 时也要设置为相同目录。
 
 ```bash
 # 读取完整 Markdown；show 只列出任务
-./mac/card.sh content
+~/.local/bin/sticky-card content
 
 # 新增任务，或追加多行普通内容
-./mac/card.sh add "整理本周进展"
-printf '## 进展\n已完成资料整理\n' | ./mac/card.sh append --stdin
+~/.local/bin/sticky-card add "整理本周进展"
+printf '## 进展\n已完成资料整理\n' | ~/.local/bin/sticky-card append --stdin
 
 # 处理任务与查看帮助
-./mac/card.sh show
-./mac/card.sh done 1
-./mac/card.sh --help
+~/.local/bin/sticky-card show
+~/.local/bin/sticky-card done 1
+~/.local/bin/sticky-card --help
 ```
 
 `append` 保留已有内容，`--stdin` 接收多行文本。写入与 GUI 共用锁和本地每日快照。任务编号会随内容变化，执行完成或删除前应先用 `show` 查看当前编号。`write` 会替换全部卡片内容，只在明确需要覆盖时使用。

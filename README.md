@@ -1,16 +1,34 @@
 # Desktop Sticky Card
 
-**macOS 用户：**请参阅 [Mac 安装与 Agent 调用说明](mac/README.md)。下文主要介绍 Windows 版。
-
 ![Banner](banner.jpg)
 
 ## 解决什么问题
 
 待办工具都需要主动打开才能看到。一旦需要"想起来才去看"，它就失去了锚点的意义。
 
-Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需要切换窗口，余光就能扫到接下来要做的事，随时确认自己的节奏和位置。
+Desktop Sticky Card 是一个桌面待办卡片，内容保存在本地 Markdown 文件中。你可以在卡片上查看和编辑，也可以让本机 Agent 通过命令行添加任务或笔记。
 
-## 特性
+## macOS 安装与使用
+
+Mac 版可在菜单栏悬停展开，也可以固定在屏幕右上角。需要 macOS 11 或更新版本、Git、Apple 命令行工具，以及带 Tk 8.6+ 的 Python。安装器不会自动安装这些依赖。
+
+```bash
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/ChenJinCloud/desktop-sticky-card/master/install-macos.sh | bash'
+```
+
+安装完成后，运行 `~/.local/bin/sticky-card-start` 启动卡片。将鼠标移到菜单栏图标上可展开卡片；点击 `Pinned` 可持续显示，再次点击可恢复悬停模式。安装器遇到已有同名命令或 Skill 时会停止，不会覆盖它们。
+
+CLI 可以让 Agent 操作同一张卡片：
+
+```bash
+~/.local/bin/sticky-card add '整理本周进展'
+printf '## 进展\n已完成资料整理\n' | ~/.local/bin/sticky-card append --stdin
+~/.local/bin/sticky-card content
+```
+
+安装器会配置 Codex、Claude Code、WorkBuddy 和共享 Agent 的 Skill 目录。DeepSeek Harness 和豆包工作可使用共享入口；Grok Bot 需要通过本机执行功能调用 CLI。实际可用性取决于 Agent 的运行位置、Skill 发现方式和文件权限；云端 Agent 不能仅凭安装文件直接操作用户的 Mac。完整说明见 [macOS 版 README](mac/README.md)。
+
+## Windows 版特性
 
 - **桌面置顶** — 悬浮在所有窗口之上，始终可见（可切换）
 - **点击勾选** — 直接在卡片上点击任务切换完成状态，自动记录完成时间
@@ -32,7 +50,7 @@ Desktop Sticky Card 是一个始终悬浮在桌面上的待办卡片——不需
 - **状态自动保存** — 窗口位置、大小、主题、字号、显示偏好全部持久化
 - **零依赖** — 仅 Python 标准库 tkinter
 
-## 快速启动
+## Windows 快速启动
 
 ```bash
 # 首次使用：复制示例文件
