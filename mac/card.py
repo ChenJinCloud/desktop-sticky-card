@@ -28,6 +28,9 @@ def usage():
   card CLI
 
   card               show tasks
+  card content       print full Markdown
+  card append <text> append Markdown without replacing existing content
+  card append --stdin append multiline Markdown from standard input
   card add <text>    add task
   card done <n>      check task
   card undo <n>      uncheck task
@@ -56,7 +59,18 @@ def main():
     cmd = args[0].lower()
     rest = " ".join(args[1:])
 
-    if cmd == "show":
+    if cmd in ("help", "--help", "-h"):
+        usage()
+    elif cmd == "content" and not rest:
+        sys.stdout.write(cardlib.read_content())
+    elif cmd == "append":
+        text = sys.stdin.read() if args[1:] == ["--stdin"] else rest
+        if not text.strip():
+            print("error: append requires non-empty content", file=sys.stderr)
+            return 2
+        cardlib.append_content(text)
+        print("content appended")
+    elif cmd == "show":
         show()
     elif cmd == "add" and rest:
         for t in cardlib.add_tasks(cardlib.split_multi_tasks(rest)):
@@ -68,6 +82,8 @@ def main():
             return 2
         ok, text = cardlib.toggle_task(number, True)
         print(f"  \u2713 {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "undo" and rest:
         number = parse_task_number(rest)
         if number is None:
@@ -75,6 +91,8 @@ def main():
             return 2
         ok, text = cardlib.toggle_task(number, False)
         print(f"  \u25cb {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "rm" and rest:
         number = parse_task_number(rest)
         if number is None:
@@ -82,6 +100,8 @@ def main():
             return 2
         ok, text = cardlib.remove_task(number)
         print(f"  - {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "clear":
         print(f"  cleared {cardlib.clear_done()} done tasks")
     elif cmd == "title" and rest:
@@ -93,6 +113,9 @@ def main():
     elif cmd == "edit":
         editor = os.environ.get("EDITOR", "nano")
         subprocess.run([editor, cardlib.CONTENT_FILE])
+    elif cmd in ("content", "add", "done", "undo", "rm", "title", "write"):
+        print(f"error: invalid arguments for {cmd}", file=sys.stderr)
+        return 2
     elif args:
         # Convenience mode: any unrecognised input is a new task.  Joining
         # argv here means users can type `./card.sh write weekly report`

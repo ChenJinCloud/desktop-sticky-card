@@ -220,11 +220,20 @@ class CardStore:
         with self.locked():
             self._commit_lines_unlocked(lines, reason)
 
+    def append_text(self, text: str) -> None:
+        with self.locked():
+            current = self._read_text_unlocked(self.content_file)
+            separator = "\n" if current and not current.endswith("\n") else ""
+            self._ensure_daily_snapshot_unlocked("append-content")
+            self._atomic_write_text(self.content_file, current + separator + text)
+
     def add_tasks(self, texts: Iterable[str], tag: str | None = None) -> list[str]:
         texts = [text for text in texts if text.strip()]
         with self.locked():
             lines = self._read_text_unlocked(self.content_file).splitlines(keepends=True)
             position = self.find_insert_position(lines)
+            if position and not lines[position - 1].endswith("\n"):
+                lines[position - 1] += "\n"
             now = datetime.now().strftime("%m/%d %H:%M")
             tag_suffix = f" #{tag}" if tag else ""
             for offset, text in enumerate(texts):

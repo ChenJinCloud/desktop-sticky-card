@@ -31,6 +31,14 @@ def read_lines():
     return _store.read_lines()
 
 
+def read_content():
+    return _store.read_text()
+
+
+def append_content(text):
+    return _store.append_text(text)
+
+
 def write_lines(lines):
     return _store.write_lines(lines)
 

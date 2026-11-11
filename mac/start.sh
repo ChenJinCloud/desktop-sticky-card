@@ -1,5 +1,8 @@
 #!/bin/bash
-# Launch Sticky Card + Chat Terminal
+# Launch the menu bar card. Pass --chat to also open the chat terminal.
 DIR="$(cd "$(dirname "$0")" && pwd)"
-"$DIR/python-with-tk.sh" "$DIR/sticky-card.py" &
-python3 "$DIR/chat.py"
+if [ "${1:-}" = "--chat" ]; then
+    "$DIR/python-with-tk.sh" "$DIR/sticky-card.py" &
+    exec python3 "$DIR/chat.py"
+fi
+exec "$DIR/python-with-tk.sh" "$DIR/sticky-card.py"
