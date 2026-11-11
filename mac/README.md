@@ -1,6 +1,6 @@
 # Desktop Sticky Card — macOS Edition
 
-始终悬浮在桌面上的待办卡片，不需要切换窗口，余光就能扫到接下来要做的事。
+菜单栏待办卡片。可固定在屏幕右上角，也可在鼠标移到菜单栏图标时展开。
 
 ## 与 Windows 版的区别
 
@@ -28,38 +28,74 @@
 - **时间戳** — 创建时间自动记录，可一键显示/隐藏
 - **对话终端** — 直接打字添加任务，支持 `1.xxx；2.xxx` 批量录入
 - **文件驱动** — 内容就是 `card-content.md`，任何编辑器都能改
-- **零依赖** — 仅 Python 标准库 tkinter
+- **轻依赖** — 仅 Python 与 tkinter，不需要应用框架
 
 ## 环境要求
 
 - Python 3.8+
-- macOS 自带 tkinter（如果使用 Homebrew Python，需要 `brew install python-tk`）
+- Tk 8.6+。近期 macOS 上不要使用系统 Python 自带的 Tk 8.5；它可能只显示空白窗口。推荐安装 `brew install python-tk@3.14`
+- macOS Swift 命令行工具（`/usr/bin/swift`），用于菜单栏图标
 
 ## 快速启动
 
 ```bash
+# 在完整项目目录中运行；macOS 版会复用上一级 shared/ 存储模块
+
 # 首次使用：复制示例内容文件
 cp card-content.example.md card-content.md
 
 # 赋予执行权限（仅首次）
-chmod +x start.sh chat.sh card.sh
+chmod +x start.sh chat.sh card.sh python-with-tk.sh
 
-# 启动（卡片 + 对话终端）
+# 启动菜单栏卡片
 ./start.sh
+
+# 如需同时启动对话终端
+./start.sh --chat
 ```
 
 单独启动：
 
 ```bash
 # 只启动卡片
-python3 sticky-card.py
+./python-with-tk.sh sticky-card.py
 
 # 只启动对话终端
 ./chat.sh
 
 # CLI 单命令
+./card.sh 写周报
+./card.sh 整理 周报 数据
 ./card.sh add "写周报"
 ./card.sh done 1
+```
+
+直接输入的文字会自动作为新任务；因此任务包含空格时也不需要加引号。`add` 写法仍然兼容。
+
+## Agent 调用 CLI
+
+Agent 可以通过 `mac/card.sh` 读取或更新同一张卡片。默认数据位于 `mac/card-content.md`；如果 GUI 使用了 `DESKTOP_STICKY_CARD_HOME`，调用 CLI 时也要设置为相同目录。
+
+```bash
+# 读取完整 Markdown；show 只列出任务
+./mac/card.sh content
+
+# 新增任务，或追加多行普通内容
+./mac/card.sh add "整理本周进展"
+printf '## 进展\n已完成资料整理\n' | ./mac/card.sh append --stdin
+
+# 处理任务与查看帮助
+./mac/card.sh show
+./mac/card.sh done 1
+./mac/card.sh --help
+```
+
+`append` 保留已有内容，`--stdin` 接收多行文本。写入与 GUI 共用锁和本地每日快照。任务编号会随内容变化，执行完成或删除前应先用 `show` 查看当前编号。`write` 会替换全部卡片内容，只在明确需要覆盖时使用。
+
+GUI、CLI 和对话终端使用同一套跨进程锁、原子写入和每日快照逻辑。如需将个人数据与源码分开，可在启动前设置：
+
+```bash
+export DESKTOP_STICKY_CARD_HOME="$HOME/.desktop-sticky-card"
 ```
 
 ## 卡片顶栏
@@ -89,6 +125,12 @@ mac/
 ├── .card-state.json   # 显示偏好（自动生成）
 └── README.md
 ```
+
+项目根目录的 `shared/cardstore.py` 是 Windows 与 macOS 共用的数据层，因此分发时需要同时保留 `shared/` 目录。
+
+点击卡片上的 `Pinned` 可将卡片固定在屏幕右上角并持续显示；再次点击切换为 `Unpinned` 后，鼠标移到菜单栏图标上可展开卡片，移出图标和卡片后会自动收起。固定状态会保存，重启后恢复。右键点击菜单栏图标并选择 `Quit Sticky Card` 可退出。卡片窗口设置了 macOS 的窗口共享限制，以减少其出现在截图中的机会；不同截图和录屏工具的行为可能不同，请在使用的工具中确认。
+
+`python-with-tk.sh` 会依次寻找带 Tk 8.6+ 的 Python，并拒绝已知可能产生空白窗口的系统 Tk 8.5。也可以通过 `PYTHON_WITH_TK` 明确指定兼容的解释器。
 
 ## License
 

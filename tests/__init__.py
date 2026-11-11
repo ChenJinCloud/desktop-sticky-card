@@ -1,0 +1,1 @@
+"""Desktop Sticky Card tests."""

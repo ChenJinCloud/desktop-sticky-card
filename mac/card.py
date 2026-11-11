@@ -28,6 +28,9 @@ def usage():
   card CLI
 
   card               show tasks
+  card content       print full Markdown
+  card append <text> append Markdown without replacing existing content
+  card append --stdin append multiline Markdown from standard input
   card add <text>    add task
   card done <n>      check task
   card undo <n>      uncheck task
@@ -39,6 +42,14 @@ def usage():
 """)
 
 
+def parse_task_number(value):
+    try:
+        number = int(value)
+    except ValueError:
+        return None
+    return number if number > 0 else None
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -48,20 +59,49 @@ def main():
     cmd = args[0].lower()
     rest = " ".join(args[1:])
 
-    if cmd == "show":
+    if cmd in ("help", "--help", "-h"):
+        usage()
+    elif cmd == "content" and not rest:
+        sys.stdout.write(cardlib.read_content())
+    elif cmd == "append":
+        text = sys.stdin.read() if args[1:] == ["--stdin"] else rest
+        if not text.strip():
+            print("error: append requires non-empty content", file=sys.stderr)
+            return 2
+        cardlib.append_content(text)
+        print("content appended")
+    elif cmd == "show":
         show()
     elif cmd == "add" and rest:
         for t in cardlib.add_tasks(cardlib.split_multi_tasks(rest)):
             print(f"  + {t}")
     elif cmd == "done" and rest:
-        ok, text = cardlib.toggle_task(int(rest), True)
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.toggle_task(number, True)
         print(f"  \u2713 {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "undo" and rest:
-        ok, text = cardlib.toggle_task(int(rest), False)
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.toggle_task(number, False)
         print(f"  \u25cb {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "rm" and rest:
-        ok, text = cardlib.remove_task(int(rest))
+        number = parse_task_number(rest)
+        if number is None:
+            print(f"  error: expected a positive task number, got {rest!r}")
+            return 2
+        ok, text = cardlib.remove_task(number)
         print(f"  - {text}" if ok else f"  error: {text}")
+        if not ok:
+            return 1
     elif cmd == "clear":
         print(f"  cleared {cardlib.clear_done()} done tasks")
     elif cmd == "title" and rest:
@@ -73,9 +113,21 @@ def main():
     elif cmd == "edit":
         editor = os.environ.get("EDITOR", "nano")
         subprocess.run([editor, cardlib.CONTENT_FILE])
+    elif cmd in ("content", "add", "done", "undo", "rm", "title", "write"):
+        print(f"error: invalid arguments for {cmd}", file=sys.stderr)
+        return 2
+    elif args:
+        # Convenience mode: any unrecognised input is a new task.  Joining
+        # argv here means users can type `./card.sh write weekly report`
+        # without quoting the task; explicit commands above remain unchanged.
+        text = " ".join(args)
+        for t in cardlib.add_tasks(cardlib.split_multi_tasks(text)):
+            print(f"  + {t}")
     else:
         usage()
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

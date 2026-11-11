@@ -4,16 +4,22 @@ Medium style - file-driven - auto-refresh - resizable - editable
 """
 
 import tkinter as tk
+from tkinter import messagebox
 import os
 import sys
 import re
-import json
 import fcntl
+import time
+from pathlib import Path
+
+import cardlib
+from menubar_logic import HoverState
+from menu_bridge import MenuBridge, protect_window
 
 # ── Config ────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
-CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
-STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
+CONTENT_FILE = cardlib.CONTENT_FILE
+STATE_FILE = cardlib.STATE_FILE
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
 MIN_WIDTH = 260
@@ -96,24 +102,20 @@ THEME_NAMES = list(THEMES.keys())
 
 
 def load_state():
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return cardlib.read_json_file(STATE_FILE, default={})
 
 
 def save_state(state):
     try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+        cardlib.update_json_file(STATE_FILE, state, reason="state-save")
+    except Exception as exc:
+        print(f"Unable to save card state: {exc}", file=sys.stderr)
 
 
 def ensure_single_instance():
     """Prevent multiple card windows. Uses fcntl file lock on macOS."""
-    lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
+    lock_path = os.path.join(str(cardlib.DATA_DIR), ".card.lock")
+    os.makedirs(str(cardlib.DATA_DIR), exist_ok=True)
     try:
         lock_file = open(lock_path, "w")
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -124,14 +126,14 @@ def ensure_single_instance():
 
 
 class StickyCard:
-    def __init__(self):
+    def __init__(self, menu_bar=False):
         self.root = tk.Tk()
         self.root.title("Sticky Card")
-        self.root.attributes("-alpha", 0.97)
-        self.root.attributes("-topmost", True)
-
-        # macOS: use overrideredirect but handle focus carefully
-        self.root.overrideredirect(True)
+        self.menu_bar = menu_bar
+        self.menu_bridge = None
+        self.hover = HoverState()
+        self.over_icon = False
+        self.menu_anchor = None
 
         self.is_pinned = True
         self.is_editing = False
@@ -143,9 +145,11 @@ class StickyCard:
         self.drag_data = {"x": 0, "y": 0}
         self.resize_data = {"active": False, "edge": None}
         self.card_width = DEFAULT_WIDTH
+        self.edit_original_text = None
 
         # Restore state
         state = load_state()
+        self.is_pinned = state.get("is_pinned", True)
         sx = self.root.winfo_screenwidth()
         x = state.get("x", sx - DEFAULT_WIDTH - 50)
         y = state.get("y", 50)
@@ -163,10 +167,17 @@ class StickyCard:
 
         self._build_ui()
         self._load_content()
+        # Tk 8.5 (the Python bundled with macOS) can leave a window showing
+        # only its backing surface when transparency/topmost/withdraw are
+        # applied before the widget tree is mapped.  Map and paint first,
+        # then apply the optional window attributes on the next event-loop
+        # turn.  A normal macOS title bar is intentionally retained because
+        # it is substantially more reliable than overrideredirect on recent
+        # macOS releases.
+        self.root.update_idletasks()
         self._poll_file()
         self._auto_save_state()
-        # macOS focus workaround: brief withdraw/deiconify cycle
-        self.root.after(100, self._fix_focus_mac)
+        self.root.after_idle(self._finish_window_setup)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
 
@@ -178,15 +189,69 @@ class StickyCard:
         """Get font size from current level."""
         return FONT_SIZES[self.font_size][key]
 
-    def _fix_focus_mac(self):
-        """macOS focus fix: withdraw and re-show to ensure window is interactive."""
-        self.root.withdraw()
-        self.root.after(50, self._show_window)
-
-    def _show_window(self):
-        self.root.deiconify()
+    def _finish_window_setup(self):
+        """Apply macOS window attributes only after child widgets are mapped."""
+        self.root.attributes("-alpha", 0.97)
+        self.root.attributes("-topmost", self.is_pinned)
         self.root.lift()
-        self.root.focus_force()
+        if self.menu_bar:
+            if not protect_window("Sticky Card"):
+                messagebox.showwarning("Sticky Card", "Screenshot protection could not be enabled.")
+            try:
+                self.menu_bridge = MenuBridge(Path(__file__).with_name("menu-helper.swift"))
+            except OSError as exc:
+                messagebox.showerror("Sticky Card", f"Unable to start menu bar: {exc}")
+                return
+            if self.is_pinned:
+                self._position_pinned()
+                self.hover.visible = True
+            else:
+                self.root.withdraw()
+            self.root.after(100, self._poll_menu)
+
+    def _poll_menu(self):
+        import queue
+        try:
+            while True:
+                message = self.menu_bridge.events.get_nowait()
+                parts = message.split()
+                if parts and parts[0] == "enter" and len(parts) == 3:
+                    self.over_icon = True
+                    self.menu_anchor = (int(parts[1]), int(parts[2]))
+                elif message == "leave":
+                    self.over_icon = False
+                elif message == "quit":
+                    self._quit_app()
+                    return
+                elif message == "closed":
+                    self.root.deiconify()
+                    messagebox.showerror("Sticky Card", "Menu bar helper stopped. Check that the macOS Swift command-line tools are installed, then restart the app.")
+                    return
+        except queue.Empty:
+            pass
+        x, y = self.root.winfo_pointerxy()
+        rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+        over_card = (self.root.state() != "withdrawn" and rx <= x < rx + self.root.winfo_width()
+                     and ry <= y < ry + self.root.winfo_height())
+        action = self.hover.update(time.monotonic(), self.over_icon, over_card, pinned=self.is_pinned)
+        if action == "show":
+            if self.is_pinned:
+                self._position_pinned()
+            elif self.menu_anchor:
+                anchor_x, anchor_y = self.menu_anchor
+                x = max(0, min(anchor_x - self.card_width, self.root.winfo_screenwidth() - self.card_width))
+                self.root.geometry(f"+{x}+{max(0, anchor_y)}")
+            self.root.deiconify()
+            self.root.lift()
+        elif action == "hide":
+            self.root.withdraw()
+        self.root.after(100, self._poll_menu)
+
+    def _quit_app(self):
+        self._save_geometry()
+        if self.menu_bridge:
+            self.menu_bridge.close()
+        self.root.destroy()
 
     def _save_geometry(self):
         geo = self.root.geometry()
@@ -199,10 +264,20 @@ class StickyCard:
                 "show_time": self.show_time,
                 "show_done": self.show_done,
                 "theme": self.theme_name,
-                "font_size": self.font_size
+                "font_size": self.font_size,
+                "is_pinned": self.is_pinned,
             })
 
     def _on_close(self):
+        if self.menu_bar and self.menu_bridge:
+            self.is_pinned = False
+            self.root.attributes("-topmost", False)
+            self.pin_btn.configure(fg=self.t("pin_inactive"))
+            self.pin_label.configure(text=" Unpinned")
+            self._save_geometry()
+            self.root.withdraw()
+            self.hover.visible = False
+            return
         self._save_geometry()
         self.root.destroy()
 
@@ -225,7 +300,7 @@ class StickyCard:
         self.pin_btn = tk.Label(
             topbar_inner, text="\u25cf", font=(SANS, 10),
             bg=self.t("topbar"), fg=self.t("pin_active") if self.is_pinned else self.t("pin_inactive"),
-            cursor="hand2"
+            cursor="arrow"
         )
         self.pin_btn.pack(side="left")
         self.pin_btn.bind("<Button-1>", self._toggle_pin)
@@ -239,7 +314,7 @@ class StickyCard:
 
         close_btn = tk.Label(
             topbar_inner, text="\u2715", font=(SANS, 11),
-            bg=self.t("topbar"), fg=self.t("secondary"), cursor="hand2"
+            bg=self.t("topbar"), fg=self.t("secondary"), cursor="arrow"
         )
         close_btn.pack(side="right")
         close_btn.bind("<Button-1>", lambda e: self._on_close())
@@ -249,7 +324,7 @@ class StickyCard:
         # Edit button
         self.edit_btn = tk.Label(
             topbar_inner, text="Edit", font=(SANS, 9),
-            bg=self.t("topbar"), fg=self.t("secondary"), cursor="hand2"
+            bg=self.t("topbar"), fg=self.t("secondary"), cursor="arrow"
         )
         self.edit_btn.pack(side="right", padx=(0, 10))
         self.edit_btn.bind("<Button-1>", self._toggle_edit)
@@ -261,7 +336,7 @@ class StickyCard:
         self.time_btn = tk.Label(
             topbar_inner, text="T", font=(SANS, 9), bg=self.t("topbar"),
             fg=self.t("accent") if self.show_time else self.t("pin_inactive"),
-            cursor="hand2"
+            cursor="arrow"
         )
         self.time_btn.pack(side="right", padx=(0, 6))
         self.time_btn.bind("<Button-1>", self._toggle_time)
@@ -274,7 +349,7 @@ class StickyCard:
             topbar_inner, text="All" if self.show_done else "Todo",
             font=(SANS, 9), bg=self.t("topbar"),
             fg=self.t("accent") if not self.show_done else self.t("secondary"),
-            cursor="hand2"
+            cursor="arrow"
         )
         self.fold_btn.pack(side="right", padx=(0, 6))
         self.fold_btn.bind("<Button-1>", self._toggle_fold)
@@ -285,7 +360,7 @@ class StickyCard:
         # Theme toggle
         self.theme_btn = tk.Label(
             topbar_inner, text=self.theme_name, font=(SANS, 9),
-            bg=self.t("topbar"), fg=self.t("secondary"), cursor="hand2"
+            bg=self.t("topbar"), fg=self.t("secondary"), cursor="arrow"
         )
         self.theme_btn.pack(side="right", padx=(0, 6))
         self.theme_btn.bind("<Button-1>", self._next_theme)
@@ -295,7 +370,7 @@ class StickyCard:
         # Font size toggle
         self.size_btn = tk.Label(
             topbar_inner, text=self.font_size, font=(SANS, 9),
-            bg=self.t("topbar"), fg=self.t("secondary"), cursor="hand2"
+            bg=self.t("topbar"), fg=self.t("secondary"), cursor="arrow"
         )
         self.size_btn.pack(side="right", padx=(0, 6))
         self.size_btn.bind("<Button-1>", self._next_font_size)
@@ -303,7 +378,7 @@ class StickyCard:
         self.size_btn.bind("<Leave>", lambda e: self.size_btn.configure(fg=self.t("secondary")))
 
         # Drag bindings
-        for w in (topbar, topbar_inner, self.pin_label):
+        for w in (topbar, topbar_inner):
             w.configure(cursor="fleur")
             w.bind("<Button-1>", self._drag_start)
             w.bind("<B1-Motion>", self._drag_move)
@@ -329,13 +404,13 @@ class StickyCard:
         ebar.pack(fill="x")
         save_btn = tk.Label(
             ebar, text="Save", font=(SANS, 10, "bold"),
-            bg=self.t("topbar"), fg=self.t("accent"), cursor="hand2", padx=10, pady=4
+            bg=self.t("topbar"), fg=self.t("accent"), cursor="arrow", padx=10, pady=4
         )
         save_btn.pack(side="right", padx=8, pady=4)
         save_btn.bind("<Button-1>", lambda e: self._save_edit())
         cancel_btn = tk.Label(
             ebar, text="Cancel", font=(SANS, 10),
-            bg=self.t("topbar"), fg=self.t("secondary"), cursor="hand2", padx=10, pady=4
+            bg=self.t("topbar"), fg=self.t("secondary"), cursor="arrow", padx=10, pady=4
         )
         cancel_btn.pack(side="right", pady=4)
         cancel_btn.bind("<Button-1>", lambda e: self._cancel_edit())
@@ -369,24 +444,36 @@ class StickyCard:
                 text = f.read()
         except FileNotFoundError:
             text = ""
+        self.edit_original_text = text
         self.editor.delete("1.0", "end")
         self.editor.insert("1.0", text)
         self.editor.focus_set()
 
     def _save_edit(self):
         text = self.editor.get("1.0", "end-1c")
-        with open(CONTENT_FILE, "w", encoding="utf-8") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
-        self.last_mtime = 0  # force refresh
-        self._exit_edit()
+        if not text.endswith("\n"):
+            text += "\n"
+        try:
+            cardlib.write_text_file(
+                CONTENT_FILE,
+                text,
+                reason="edit-save",
+                expected_text=self.edit_original_text,
+            )
+            self.edit_original_text = text
+            self.last_mtime = 0  # force refresh
+            self._exit_edit()
+        except cardlib.ContentConflictError as exc:
+            messagebox.showwarning("Sticky Card", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to save:\n{exc}")
 
     def _cancel_edit(self):
         self._exit_edit()
 
     def _exit_edit(self):
         self.is_editing = False
+        self.edit_original_text = None
         self.edit_btn.configure(text="Edit", fg=self.t("secondary"))
         self.editor_frame.pack_forget()
         self.content_frame.pack(fill="both", expand=True, padx=20, pady=(12, 16))
@@ -457,6 +544,8 @@ class StickyCard:
     def _resize_end(self, event):
         if self.resize_data["active"]:
             self.resize_data["active"] = False
+            if self.menu_bar and self.is_pinned:
+                self._position_pinned()
             self._save_geometry()
             if not self.is_editing:
                 self.last_mtime = 0
@@ -478,9 +567,16 @@ class StickyCard:
 
     def _apply_theme(self):
         """Rebuild entire UI with new theme/font."""
+        edit_text = self.editor.get("1.0", "end-1c") if self.is_editing else None
         self.root.configure(bg=self.t("border"))
         self.outer_border.destroy()
         self._build_ui()
+        if edit_text is not None:
+            self.content_frame.pack_forget()
+            self.editor_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+            self.edit_btn.configure(text="Editing", fg=self.t("accent"))
+            self.editor.insert("1.0", edit_text)
+            self.editor.focus_set()
         self._save_geometry()
         self.last_mtime = 0
         self._load_content()
@@ -491,29 +587,18 @@ class StickyCard:
         if self.is_editing:
             return
         try:
-            from datetime import datetime
-            lines = list(open(CONTENT_FILE, "r", encoding="utf-8"))
-            if line_idx < 0 or line_idx >= len(lines):
-                return
-            line = lines[line_idx]
-            if re.search(r'\[x\]', line, re.IGNORECASE):
-                lines[line_idx] = re.sub(r'\[x\]', '[ ]', line, count=1, flags=re.IGNORECASE)
-                lines[line_idx] = re.sub(r'\s*done:`\d{2}/\d{2}\s+\d{2}:\d{2}`', '', lines[line_idx])
-            elif re.search(r'\[\s?\]', line):
-                now = datetime.now().strftime("%m/%d %H:%M")
-                lines[line_idx] = re.sub(r'\[\s?\]', '[x]', line, count=1)
-                lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
-            with open(CONTENT_FILE, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-        except Exception:
-            pass
+            changed = cardlib.toggle_task_at_line(CONTENT_FILE, line_idx, record_done=True)
+            if not changed:
+                self.last_mtime = 0
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to update task:\n{exc}")
 
     def _make_clickable(self, widget, line_idx):
         widget.bind("<Button-1>", lambda e, idx=line_idx: self._toggle_task(idx))
-        widget.configure(cursor="hand2")
+        widget.configure(cursor="arrow")
         for child in widget.winfo_children():
             child.bind("<Button-1>", lambda e, idx=line_idx: self._toggle_task(idx))
-            child.configure(cursor="hand2")
+            child.configure(cursor="arrow")
 
     # ── Render ────────────────────────────────────────
 
@@ -711,11 +796,23 @@ class StickyCard:
 
     # ── Pin / Drag ────────────────────────────────────
 
+    def _position_pinned(self):
+        x = max(0, self.root.winfo_screenwidth() - self.card_width - 20)
+        self.root.geometry(f"+{x}+40")
+
     def _toggle_pin(self, event=None):
         self.is_pinned = not self.is_pinned
         self.root.attributes("-topmost", self.is_pinned)
         self.pin_btn.configure(fg=self.t("pin_active") if self.is_pinned else self.t("pin_inactive"))
         self.pin_label.configure(text=" Pinned" if self.is_pinned else " Unpinned")
+        if self.menu_bar:
+            self.hover.left_at = None
+            if self.is_pinned:
+                self._position_pinned()
+                self.hover.visible = True
+                self.root.deiconify()
+                self.root.lift()
+            self._save_geometry()
         return "break"
 
     def _drag_start(self, event):
@@ -723,7 +820,7 @@ class StickyCard:
         self.drag_data["y"] = event.y_root - self.root.winfo_y()
 
     def _drag_move(self, event):
-        if self.resize_data["active"]:
+        if self.resize_data["active"] or (self.menu_bar and self.is_pinned):
             return
         x = event.x_root - self.drag_data["x"]
         y = event.y_root - self.drag_data["y"]
@@ -735,4 +832,4 @@ class StickyCard:
 
 if __name__ == "__main__":
     ensure_single_instance()
-    StickyCard()
+    StickyCard(menu_bar=True)

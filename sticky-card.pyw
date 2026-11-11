@@ -13,6 +13,7 @@ except Exception:
         pass
 
 import tkinter as tk
+from tkinter import messagebox
 import os
 import sys
 import re
@@ -25,11 +26,11 @@ import cardlib
 
 # ── Config ────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
-CONTENT_FILE = os.path.join(SCRIPT_DIR, "card-content.md")
-STATE_FILE = os.path.join(SCRIPT_DIR, ".card-state.json")
-TAGS_FILE = os.path.join(SCRIPT_DIR, "card-tags.json")
+CONTENT_FILE = cardlib.CONTENT_FILE
+STATE_FILE = cardlib.STATE_FILE
+TAGS_FILE = cardlib.TAGS_FILE
 TAGS_EXAMPLE_FILE = os.path.join(SCRIPT_DIR, "card-tags.example.json")
-HABITS_FILE = os.path.join(SCRIPT_DIR, "card-habits.md")
+HABITS_FILE = cardlib.HABITS_FILE
 HISTORY_DIR = cardlib.HISTORY_DIR
 POLL_INTERVAL_MS = 500
 DEFAULT_WIDTH = 380
@@ -151,20 +152,14 @@ THEME_NAMES = list(THEMES.keys())
 
 
 def load_state():
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return cardlib.read_json_file(STATE_FILE, default={})
 
 
 def save_state(state):
     try:
-        cardlib.ensure_daily_snapshot("state-save")
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+        cardlib.update_json_file(STATE_FILE, state, reason="state-save")
+    except Exception as exc:
+        print(f"Unable to save card state: {exc}", file=sys.stderr)
 
 
 def load_tags():
@@ -188,7 +183,7 @@ def parse_tags(text):
     return clean, tags
 
 
-HWND_FILE = os.path.join(SCRIPT_DIR, ".card.hwnd")
+HWND_FILE = os.path.join(str(cardlib.DATA_DIR), ".card.hwnd")
 
 
 def _activate_existing_window():
@@ -217,7 +212,8 @@ def _activate_existing_window():
 
 def ensure_single_instance():
     """Prevent multiple card windows. Uses a lock file with exclusive access."""
-    lock_path = os.path.join(SCRIPT_DIR, ".card.lock")
+    lock_path = os.path.join(str(cardlib.DATA_DIR), ".card.lock")
+    os.makedirs(str(cardlib.DATA_DIR), exist_ok=True)
     try:
         import msvcrt
         lock_file = open(lock_path, "w")
@@ -297,11 +293,14 @@ class StickyCard:
         self.quick_add_mode = False
         self.quick_add_line = None
         self.saving_edit = False
+        self.edit_original_text = None
         self.hotkey_queue = queue.Queue()
         self.hotkeys = GlobalHotkeys(self.hotkey_queue)
 
         # Restore state
         state = load_state()
+        self.is_pinned = state.get("is_pinned", True)
+        self.root.attributes("-topmost", self.is_pinned)
         sx = self.root.winfo_screenwidth()
         sy = self.root.winfo_screenheight()
         x = state.get("x", sx - DEFAULT_WIDTH - 50)
@@ -370,21 +369,11 @@ class StickyCard:
         """Reset habits checkboxes if a new day has started."""
         from datetime import date
         today = date.today().isoformat()
-        last_reset = state.get("habits_last_reset", "")
-        if today != last_reset and os.path.exists(HABITS_FILE):
+        if os.path.exists(HABITS_FILE):
             try:
-                with open(HABITS_FILE, "r", encoding="utf-8") as f:
-                    text = f.read()
-                new_text = re.sub(r'\[x\]', '[ ]', text, flags=re.IGNORECASE)
-                if new_text != text:
-                    cardlib.ensure_daily_snapshot("habits-reset")
-                    with open(HABITS_FILE, "w", encoding="utf-8") as f:
-                        f.write(new_text)
-            except Exception:
-                pass
-            # Save reset date immediately
-            state["habits_last_reset"] = today
-            save_state(state)
+                cardlib.reset_habits_if_needed(today)
+            except Exception as exc:
+                messagebox.showerror("Sticky Card", f"Unable to reset habits:\n{exc}")
 
     def _fix_focus_hack(self):
         self.root.withdraw()
@@ -429,6 +418,7 @@ class StickyCard:
                 "theme": self.theme_name,
                 "font_size": self.font_size,
                 "height": self.user_height,
+                "is_pinned": self.is_pinned,
                 "active_tag": self.active_tag,
                 "show_tags": self.show_tags,
                 "collapsed_sections": list(self.collapsed_sections)
@@ -754,6 +744,7 @@ class StickyCard:
                 text = f.read()
         except FileNotFoundError:
             text = ""
+        self.edit_original_text = text
         if quick_add:
             text, line_no, col_no = self._prepare_quick_add_text(text)
             self.quick_add_line = line_no
@@ -790,13 +781,21 @@ class StickyCard:
                     if re.match(r'^[-*]\s*\[\s?\]\s*\S', line) and not re.search(r'`\d{2}/\d{2}\s+\d{2}:\d{2}`', line):
                         lines[i] = line.rstrip() + f" `{now}`"
                 text = "\n".join(lines)
-            cardlib.ensure_daily_snapshot("edit-save")
-            with open(self._active_file, "w", encoding="utf-8") as f:
-                f.write(text)
-                if not text.endswith("\n"):
-                    f.write("\n")
+            if not text.endswith("\n"):
+                text += "\n"
+            cardlib.write_text_file(
+                self._active_file,
+                text,
+                reason="edit-save",
+                expected_text=self.edit_original_text,
+            )
+            self.edit_original_text = text
             self.last_mtime = 0  # force refresh
             self._exit_edit()
+        except cardlib.ContentConflictError as exc:
+            messagebox.showwarning("Sticky Card", str(exc))
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to save:\n{exc}")
         finally:
             self.saving_edit = False
         return "break"
@@ -809,6 +808,7 @@ class StickyCard:
         self.is_editing = False
         self.quick_add_mode = False
         self.quick_add_line = None
+        self.edit_original_text = None
         self.edit_btn.configure(text="Edit", fg=self.t("secondary"))
         self.editor_frame.pack_forget()
         self.content_frame.pack(fill="both", expand=True, padx=20, pady=(12, 16))
@@ -955,26 +955,14 @@ class StickyCard:
         if self.is_editing:
             return
         try:
-            from datetime import datetime
             target = self._active_file
-            lines = list(open(target, "r", encoding="utf-8"))
-            if line_idx < 0 or line_idx >= len(lines):
-                return
-            line = lines[line_idx]
-            if re.search(r'\[x\]', line, re.IGNORECASE):
-                lines[line_idx] = re.sub(r'\[x\]', '[ ]', line, count=1, flags=re.IGNORECASE)
-                if not self.habits_mode:
-                    lines[line_idx] = re.sub(r'\s*done:`\d{2}/\d{2}\s+\d{2}:\d{2}`', '', lines[line_idx])
-            elif re.search(r'\[\s?\]', line):
-                lines[line_idx] = re.sub(r'\[\s?\]', '[x]', line, count=1)
-                if not self.habits_mode:
-                    now = datetime.now().strftime("%m/%d %H:%M")
-                    lines[line_idx] = lines[line_idx].rstrip('\n') + f' done:`{now}`\n'
-            cardlib.ensure_daily_snapshot("task-toggle")
-            with open(target, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-        except Exception:
-            pass
+            changed = cardlib.toggle_task_at_line(
+                target, line_idx, record_done=not self.habits_mode
+            )
+            if not changed:
+                self.last_mtime = 0
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to update task:\n{exc}")
 
     def _make_clickable(self, widget, line_idx):
         def bind_task(w):
@@ -1083,20 +1071,9 @@ class StickyCard:
             dst_line_idx = self.task_widgets[-1][1] + 1
 
         try:
-            target = self._active_file
-            with open(target, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            if src_line_idx < 0 or src_line_idx >= len(lines):
-                return
-            line = lines.pop(src_line_idx)
-            if src_line_idx < dst_line_idx:
-                dst_line_idx -= 1
-            lines.insert(dst_line_idx, line)
-            cardlib.ensure_daily_snapshot("task-reorder")
-            with open(target, "w", encoding="utf-8") as f:
-                f.writelines(lines)
-        except Exception:
-            pass
+            cardlib.reorder_line(self._active_file, src_line_idx, dst_line_idx)
+        except Exception as exc:
+            messagebox.showerror("Sticky Card", f"Unable to reorder task:\n{exc}")
 
     # ── Render ────────────────────────────────────────
 
