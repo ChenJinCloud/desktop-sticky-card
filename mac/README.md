@@ -33,10 +33,25 @@
 ## 环境要求
 
 - Python 3.8+
+- macOS 11 或更新版本
 - Tk 8.6+。近期 macOS 上不要使用系统 Python 自带的 Tk 8.5；它可能只显示空白窗口。推荐安装 `brew install python-tk@3.14`
 - macOS Swift 命令行工具（`/usr/bin/swift`），用于菜单栏图标
 
 ## 快速启动
+
+新用户可在终端执行以下命令，下载项目并安装 CLI 与可移植 Skill：
+
+```bash
+bash -o pipefail -c 'curl -fsSL https://raw.githubusercontent.com/ChenJinCloud/desktop-sticky-card/master/install-macos.sh | bash'
+```
+
+安装前需要 Git、Apple 命令行工具，以及带 Tk 8.6+ 的 Python。安装器不会自动安装这些依赖，也不会覆盖已有同名命令或 Skill；如有冲突，它会停止并显示路径。安装完成后运行 `~/.local/bin/sticky-card-start` 启动卡片。若 `~/.local/bin` 不在 PATH 中，用完整路径调用 CLI。
+
+安装器将 Skill 链接到 Codex、Claude Code、WorkBuddy 及共享 `.agents/skills` 目录。DeepSeek Harness 和豆包工作已在本机验证可发现或使用对应入口；其他机器的技能发现与本机文件权限需在各 Agent 中验证。Grok Bot 需要在其本机执行功能可用时，通过命令路径调用；不保证自动发现 Skill。云端 Agent 无法仅靠安装文件直接操作用户 Mac。
+
+已经克隆项目的用户也可以从项目根目录执行 `bash install-macos.sh`。现有安装目录不会自动更新，以免覆盖本地改动和卡片数据。
+
+从源码手动启动：
 
 ```bash
 # 在完整项目目录中运行；macOS 版会复用上一级 shared/ 存储模块
@@ -119,7 +134,7 @@ mac/
 ├── cardlib.py         # 共享库
 ├── chat.py            # 对话终端
 ├── card.py            # CLI 工具
-├── start.sh           # 一键启动：卡片 + 对话终端
+├── start.sh           # 启动菜单栏卡片；--chat 同时启动终端
 ├── chat.sh            # 单独启动对话终端
 ├── card.sh            # CLI 入口
 ├── .card-state.json   # 显示偏好（自动生成）
