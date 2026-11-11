@@ -7,8 +7,9 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-22.04, windows-latest, macos-latest]
         python-version: ["3.8", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
