@@ -81,6 +81,14 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((folder / "SKILL.md").read_text(), "existing skill")
         self.assertFalse((self.home / ".local/share/desktop-sticky-card").exists())
 
+    def test_existing_marker_with_wrong_launcher_is_not_accepted(self):
+        path = self.home / ".local/bin/sticky-card"
+        path.parent.mkdir(parents=True)
+        path.write_text("#!/bin/bash\n# desktop-sticky-card managed launcher\nexec /wrong/path\n")
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("/wrong/path", path.read_text())
+
     def test_install_creates_missing_skill_roots(self):
         for name in (".agents", ".claude", ".codex", ".workbuddy"):
             shutil.rmtree(self.home / name)

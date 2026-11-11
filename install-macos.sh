@@ -19,7 +19,10 @@ fi
 for name in sticky-card sticky-card-start; do
     dest="$bin/$name"
     if [ -e "$dest" ] || [ -L "$dest" ]; then
-        if [ ! -f "$dest" ] || ! grep -Fqx '# desktop-sticky-card managed launcher' "$dest"; then
+        target="$project/mac/card.sh"
+        [ "$name" = sticky-card-start ] && target="$project/mac/start.sh"
+        expected="$(printf '#!/bin/bash\n# desktop-sticky-card managed launcher\nexec %q "$@"\n' "$target")"
+        if [ -L "$dest" ] || [ ! -f "$dest" ] || [ "$(cat "$dest")" != "$expected" ]; then
             printf 'Refusing to overwrite existing command: %s\n' "$dest" >&2
             exit 1
         fi
