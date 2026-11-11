@@ -1,5 +1,7 @@
 # Desktop Sticky Card
 
+**macOS 用户：**请参阅 [Mac 安装与 Agent 调用说明](mac/README.md)。下文主要介绍 Windows 版。
+
 ![Banner](banner.jpg)
 
 ## 解决什么问题

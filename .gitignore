@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 banner.html
 Desktop-Sticky-Card/
+!skills/desktop-sticky-card/
+!skills/desktop-sticky-card/SKILL.md
