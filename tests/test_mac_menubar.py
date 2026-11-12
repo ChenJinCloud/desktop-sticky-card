@@ -51,3 +51,12 @@ class NotchTests(unittest.TestCase):
     def test_unknown_geometry_means_no_warning(self):
         self.assertFalse(logic.is_behind_notch(None, 771, 956))
         self.assertFalse(logic.is_behind_notch(944, None, None))
+
+
+class AppleScriptTests(unittest.TestCase):
+    def test_line_breaks_survive_as_return(self):
+        self.assertEqual(logic.applescript_string("a\nb"), '"a" & return & "b"')
+
+    def test_quotes_and_backslashes_are_escaped(self):
+        self.assertEqual(logic.applescript_string('say "hi"'), '"say \\"hi\\""')
+        self.assertEqual(logic.applescript_string("c:\\path"), '"c:\\\\path"')
