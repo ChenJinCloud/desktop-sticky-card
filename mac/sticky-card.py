@@ -10,10 +10,11 @@ import sys
 import re
 import fcntl
 import time
+import subprocess
 from pathlib import Path
 
 import cardlib
-from menubar_logic import HoverState
+from menubar_logic import HoverState, applescript_string, is_behind_notch
 from menu_bridge import MenuBridge, protect_window
 
 # ── Config ────────────────────────────────────────────
@@ -134,6 +135,9 @@ class StickyCard:
         self.hover = HoverState()
         self.over_icon = False
         self.menu_anchor = None
+        self.icon_mid_x = None
+        self.notch_gap = None
+        self.notch_warned = False
 
         self.is_pinned = True
         self.is_editing = False
@@ -209,6 +213,43 @@ class StickyCard:
                 self.root.withdraw()
             self.root.after(100, self._poll_menu)
 
+    NOTCH_MESSAGE = (
+        "菜单栏图标被刘海遮挡（菜单栏空间不足）。\n"
+        "请先隐藏部分其他菜单栏图标，再重启卡片；"
+        "也可以先固定（pin）卡片，用卡片窗口顶栏的按钮操作。"
+    )
+
+    def _warn_if_behind_notch(self):
+        """Tell the user when macOS parked the icon behind the notch."""
+        if self.notch_warned or self.notch_gap is None:
+            return
+        low, high = self.notch_gap
+        if not is_behind_notch(self.icon_mid_x, low, high):
+            return
+        self.notch_warned = True
+        # stderr keeps a record even when the dialog is dismissed unseen.
+        print(f"[menubar] icon at x={self.icon_mid_x} sits in the notch gap "
+              f"{low}-{high}", file=sys.stderr, flush=True)
+        self._native_alert("Sticky Card", self.NOTCH_MESSAGE)
+
+    @staticmethod
+    def _native_alert(title, message):
+        """Show a dialog that survives a withdrawn Tk root.
+
+        A tkinter messagebox is owned by the (hidden) card window, so it can be
+        created without ever becoming visible. osascript draws its own window
+        and comes to the front regardless of the card state.
+        """
+        script = (
+            f'display alert "{title}" message '
+            + applescript_string(message)
+            + ' as warning buttons {"知道了"} default button 1'
+        )
+        try:
+            subprocess.Popen(["/usr/bin/osascript", "-e", script])
+        except OSError as exc:
+            print(f"[menubar] alert failed: {exc}", file=sys.stderr, flush=True)
+
     def _poll_menu(self):
         import queue
         try:
@@ -220,6 +261,12 @@ class StickyCard:
                     self.menu_anchor = (int(parts[1]), int(parts[2]))
                 elif message == "leave":
                     self.over_icon = False
+                elif parts and parts[0] == "ready" and len(parts) == 3:
+                    self.icon_mid_x = int(parts[1])
+                    self._warn_if_behind_notch()
+                elif parts and parts[0] == "notch" and len(parts) == 3:
+                    self.notch_gap = (int(parts[1]), int(parts[2]))
+                    self._warn_if_behind_notch()
                 elif message == "quit":
                     self._quit_app()
                     return

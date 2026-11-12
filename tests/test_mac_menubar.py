@@ -37,3 +37,26 @@ class HoverTests(unittest.TestCase):
         state.update(1, False, False)
         self.assertIsNone(state.update(2, False, False, pinned=True))
         self.assertIsNone(state.update(3, False, False, pinned=False))
+
+
+class NotchTests(unittest.TestCase):
+    def test_icon_inside_gap_is_behind_notch(self):
+        # Measured on a 16-inch MacBook Pro: the gap runs from 771 to 956 points.
+        self.assertTrue(logic.is_behind_notch(944, 771, 956))
+
+    def test_icon_outside_gap_is_visible(self):
+        self.assertFalse(logic.is_behind_notch(700, 771, 956))
+        self.assertFalse(logic.is_behind_notch(1000, 771, 956))
+
+    def test_unknown_geometry_means_no_warning(self):
+        self.assertFalse(logic.is_behind_notch(None, 771, 956))
+        self.assertFalse(logic.is_behind_notch(944, None, None))
+
+
+class AppleScriptTests(unittest.TestCase):
+    def test_line_breaks_survive_as_return(self):
+        self.assertEqual(logic.applescript_string("a\nb"), '"a" & return & "b"')
+
+    def test_quotes_and_backslashes_are_escaped(self):
+        self.assertEqual(logic.applescript_string('say "hi"'), '"say \\"hi\\""')
+        self.assertEqual(logic.applescript_string("c:\\path"), '"c:\\\\path"')

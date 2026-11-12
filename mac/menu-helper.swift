@@ -5,6 +5,7 @@ final class MenuHelper: NSObject, NSApplicationDelegate {
     var inside = false
     var timer: Timer?
     var announced = false
+    var announcedNotch = false
     let parent = getppid()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -37,6 +38,12 @@ final class MenuHelper: NSObject, NSApplicationDelegate {
         if getppid() != parent { NSApp.terminate(nil); return }
         guard let button = item.button, let window = button.window else { return }
         let rect = window.convertToScreen(button.convert(button.bounds, to: nil))
+        if !announcedNotch, let screen = window.screen,
+           let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            print("notch \(Int(left.maxX)) \(Int(right.minX))")
+            fflush(stdout)
+            announcedNotch = true
+        }
         if !announced && rect.minY >= 0 && rect.minX >= 0 {
             let mainTop = NSScreen.screens.first?.frame.maxY ?? 0
             print("ready \(Int(rect.midX)) \(Int(mainTop - rect.midY))")
