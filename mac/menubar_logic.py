@@ -1,3 +1,15 @@
+def is_behind_notch(mid_x, gap_min, gap_max):
+    """True when the status item centre falls inside the notch gap.
+
+    On notched MacBooks the menu bar is split into a left and a right usable
+    area. macOS clips status items that do not fit, so an item pushed into the
+    gap is invisible and unclickable instead of failing loudly.
+    """
+    if mid_x is None or gap_min is None or gap_max is None:
+        return False
+    return gap_min < mid_x < gap_max
+
+
 class HoverState:
     def __init__(self, grace=0.4):
         self.grace = grace
