@@ -16,6 +16,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+try:  # imported as part of the shared package
+    from .relativedates import normalize_relative_dates, raw_dates_enabled
+except ImportError:  # imported as a plain module next to cardstore.py
+    from relativedates import normalize_relative_dates, raw_dates_enabled
+
 
 TASK_RE = re.compile(r"^[-*]\s*\[([ x])\]\s*(.*)", re.IGNORECASE)
 OPEN_TASK_RE = re.compile(r"^[-*]\s*\[\s?\]\s*", re.IGNORECASE)
@@ -229,6 +234,10 @@ class CardStore:
 
     def add_tasks(self, texts: Iterable[str], tag: str | None = None) -> list[str]:
         texts = [text for text in texts if text.strip()]
+        # "今天/明天" is relative and reads wrong the next day, so store the
+        # absolute date instead. DESKTOP_STICKY_CARD_RAW_DATES=1 opts out.
+        if not raw_dates_enabled():
+            texts = [normalize_relative_dates(text) for text in texts]
         with self.locked():
             lines = self._read_text_unlocked(self.content_file).splitlines(keepends=True)
             position = self.find_insert_position(lines)
